@@ -192,7 +192,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleNotificationIntent(intent: Intent?) {
+        val deepLinkUri = intent?.data
+        val deepLinkVideoId = if (deepLinkUri != null) {
+            val host = deepLinkUri.host.orEmpty()
+            val segments = deepLinkUri.pathSegments.orEmpty()
+            when {
+                deepLinkUri.scheme == "janzflare" && host == "watch" ->
+                    segments.firstOrNull()?.takeIf { it.isNotBlank() }
+                (deepLinkUri.scheme == "https" || deepLinkUri.scheme == "http") &&
+                    host == "janzflare.app" &&
+                    segments.firstOrNull() == "watch" ->
+                    segments.getOrNull(1)?.takeIf { it.isNotBlank() }
+                else -> null
+            }
+        } else null
+
         val vid = intent?.getStringExtra(JanzNotificationHelper.EXTRA_VIDEO_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: deepLinkVideoId
+
         if (!vid.isNullOrBlank()) {
             pendingNotifVideoId = vid
             pendingOpenNotifications = false
@@ -416,7 +434,6 @@ private fun AuthenticatedJanzApp(
                                     onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
                                     onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
-                                    onOpenMonetize = { navController.navigate(JanzRoutes.dashboard(1)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) }
                                 )
@@ -453,7 +470,6 @@ private fun AuthenticatedJanzApp(
                                     onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
                                     onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
-                                    onOpenMonetize = { navController.navigate(JanzRoutes.dashboard(1)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) }
                                 )

@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,7 @@ import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.CreatorSpotlightCard
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.JanzBrandHeader
+import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.ShortsStripSkeleton
@@ -117,6 +119,8 @@ fun HomeScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
     val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
     val ownCreator = (ownCreatorState as? UiState.Success)?.data
@@ -204,115 +208,136 @@ fun HomeScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::refreshFeed,
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Optional Admin Notice Banner
-            val bannerText = platformSettings?.featuredBannerText.orEmpty()
-            val maintText = platformSettings?.maintenanceNotice.orEmpty()
-            if (bannerText.isNotBlank() || maintText.isNotBlank()) {
-                item {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = maintText.ifBlank { bannerText },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(12.dp)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (!isOnline) {
+                    item {
+                        NetworkStatusBanner(
+                            isOnline = isOnline,
+                            onRetry = viewModel::refreshFeed,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
                 }
-            }
 
-            // Categories Filter
-            item {
-                CategoryChipRow(
-                    categories = activeCategories,
-                    selectedCategory = selectedCategory,
-                    onSelectCategory = viewModel::selectCategoryFilter,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-
-            // Shorts Spotlight Strip
-            if (publicVideosState is UiState.Loading && shortsFeed.isEmpty()) {
-                item { ShortsStripSkeleton() }
-            } else if (shortsFeed.isNotEmpty()) {
-                item {
-                    Column {
-                        Row(
+                // Optional Admin Notice Banner
+                val bannerText = platformSettings?.featuredBannerText.orEmpty()
+                val maintText = platformSettings?.maintenanceNotice.orEmpty()
+                if (bannerText.isNotBlank() || maintText.isNotBlank()) {
+                    item {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
-                            Text("Shorts", style = MaterialTheme.typography.titleLarge)
-                            TextButton(onClick = {
-                                viewModel.clearFocusedShort()
-                                onOpenShorts()
-                            }) {
-                                Text("Watch All")
-                            }
+                            Text(
+                                text = maintText.ifBlank { bannerText },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(12.dp)
+                            )
                         }
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(shortsFeed.take(10), key = { it.id }) { shortVideo ->
-                                ShortPreviewCard(
-                                    video = shortVideo,
-                                    onClick = {
-                                        viewModel.focusShort(shortVideo.id)
-                                        onOpenShorts()
-                                    }
-                                )
+                    }
+                }
+
+                // Categories Filter
+                item {
+                    CategoryChipRow(
+                        categories = activeCategories,
+                        selectedCategory = selectedCategory,
+                        onSelectCategory = viewModel::selectCategoryFilter,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+
+                // Shorts Spotlight Strip
+                if (isRefreshing || (publicVideosState is UiState.Loading && shortsFeed.isEmpty())) {
+                    item { ShortsStripSkeleton() }
+                } else if (shortsFeed.isNotEmpty()) {
+                    item {
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Shorts", style = MaterialTheme.typography.titleLarge)
+                                TextButton(onClick = {
+                                    viewModel.clearFocusedShort()
+                                    onOpenShorts()
+                                }) {
+                                    Text("Watch All")
+                                }
+                            }
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(shortsFeed.take(10), key = { it.id }) { shortVideo ->
+                                    ShortPreviewCard(
+                                        video = shortVideo,
+                                        onClick = {
+                                            viewModel.focusShort(shortVideo.id)
+                                            onOpenShorts()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Video Feed State
-            when (publicVideosState) {
-                is UiState.Loading -> {
+                // Video Feed State
+                if (isRefreshing || publicVideosState is UiState.Loading) {
                     items(3) {
                         VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
                     }
-                }
-                is UiState.Error -> {
-                    val err = (publicVideosState as UiState.Error).message
-                    item {
-                        EmptyStudioCard(
-                            title = "Could not refresh feed",
-                            subtitle = err,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
+                } else when (publicVideosState) {
+                    is UiState.Loading -> {
+                        items(3) {
+                            VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
                     }
-                }
-                is UiState.Success -> {
-                    if (homeFeed.isEmpty()) {
+                    is UiState.Error -> {
+                        val err = (publicVideosState as UiState.Error).message
                         item {
                             EmptyStudioCard(
-                                title = if (selectedTab == HomeFeedTab.FOLLOWING) {
-                                    "No videos from subscribed creators yet"
-                                } else {
-                                    "Be the First Creator to Spark JanzFlare"
-                                },
-                                subtitle = "Upload a video or Short from your phone gallery to publish to the community feed.",
-                                actionLabel = "Upload Video",
-                                onActionClick = onOpenUpload,
+                                title = "Could not refresh feed",
+                                subtitle = err,
+                                actionLabel = "Retry",
+                                onActionClick = viewModel::refreshFeed,
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
                         }
-                    } else {
+                    }
+                    is UiState.Success -> {
+                        if (homeFeed.isEmpty()) {
+                            item {
+                                EmptyStudioCard(
+                                    title = if (selectedTab == HomeFeedTab.FOLLOWING) {
+                                        "No videos from subscribed creators yet"
+                                    } else {
+                                        "Be the First Creator to Spark JanzFlare"
+                                    },
+                                    subtitle = "Upload a video or Short from your phone gallery to publish to the community feed.",
+                                    actionLabel = "Upload Video",
+                                    onActionClick = onOpenUpload,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+                        } else {
                         items(homeFeed, key = { it.id }) { video ->
                             val videoCreator = creatorsById[video.creatorId]
                             VideoThumbnailCard(
@@ -402,6 +427,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -519,6 +545,8 @@ fun ExploreSearchScreen(
     val likedIds by viewModel.likedVideoIds.collectAsStateWithLifecycle()
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var searchScope by remember { mutableStateOf("All") }
@@ -665,11 +693,24 @@ fun ExploreSearchScreen(
         )
         Spacer(Modifier.height(10.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::refreshFeed,
+            modifier = Modifier.fillMaxSize()
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (!isOnline) {
+                    item {
+                        NetworkStatusBanner(
+                            isOnline = isOnline,
+                            onRetry = viewModel::refreshFeed
+                        )
+                    }
+                }
             if (query.isBlank()) {
                 if (recentSearches.isNotEmpty()) {
                     item {
@@ -756,15 +797,17 @@ fun ExploreSearchScreen(
             }
 
             if (searchScope != "Creators") {
-                if (publicVideosState is UiState.Loading) {
+                if (isRefreshing || publicVideosState is UiState.Loading) {
                     items(3) {
                         VideoCardSkeleton()
                     }
                 } else if (filteredVideos.isEmpty()) {
                     item {
                         EmptyStudioCard(
-                            title = "No matching videos found",
-                            subtitle = "Try another keyword, category, or language filter."
+                            title = if (!isOnline) "Network unavailable" else "No matching videos found",
+                            subtitle = if (!isOnline) "Check your internet connection and pull down to retry." else "Try another keyword, category, or language filter.",
+                            actionLabel = if (!isOnline) "Retry" else null,
+                            onActionClick = if (!isOnline) viewModel::refreshFeed else null
                         )
                     }
                 } else {
@@ -800,6 +843,7 @@ fun ExploreSearchScreen(
                     }
                 }
             }
+        }
         }
     }
 

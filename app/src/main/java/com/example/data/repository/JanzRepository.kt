@@ -27,6 +27,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -327,11 +328,10 @@ class JanzRepository(
                     }
                 }
                 val existingAvatar = creatorSnap.getString("avatarUrl").orEmpty()
-                val isBrokenLocalAvatar = existingAvatar.isBlank() ||
-                    existingAvatar.startsWith("file:") ||
+                val isBrokenLocalAvatar = existingAvatar.startsWith("file:") ||
                     existingAvatar.startsWith("content:")
                 if (isBrokenLocalAvatar && avatarUrl.startsWith("http")) {
-                    // Separate update matches Tier 2 owner rules cleanly
+                    // Repair broken local file:// URIs from pre-Cloudinary builds without overriding explicit removals
                     creatorRef.update(
                         mapOf(
                             "avatarUrl" to avatarUrl,
@@ -357,7 +357,9 @@ class JanzRepository(
         preferredLanguage: String,
         interests: List<String>,
         avatarUri: Uri?,
-        coverUri: Uri?
+        coverUri: Uri?,
+        removeAvatar: Boolean = false,
+        removeCover: Boolean = false
     ): Result<Unit> {
         val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Not signed in"))
         return try {
@@ -398,8 +400,14 @@ class JanzRepository(
                 "socialLink" to socialLink.trim().take(200),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            if (!uploadedAvatar.isNullOrBlank()) creatorUpdates["avatarUrl"] = uploadedAvatar.take(500)
-            if (!uploadedCover.isNullOrBlank()) creatorUpdates["coverUrl"] = uploadedCover.take(500)
+            when {
+                !uploadedAvatar.isNullOrBlank() -> creatorUpdates["avatarUrl"] = uploadedAvatar.take(500)
+                removeAvatar -> creatorUpdates["avatarUrl"] = ""
+            }
+            when {
+                !uploadedCover.isNullOrBlank() -> creatorUpdates["coverUrl"] = uploadedCover.take(500)
+                removeCover -> creatorUpdates["coverUrl"] = ""
+            }
 
             db.collection("creators").document(uid).update(creatorUpdates).await()
             Result.success(Unit)
@@ -407,6 +415,27 @@ class JanzRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, "creators/$uid")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun forceRefreshFromServer(uid: String): Result<Unit> {
+        return try {
+            db.collection("videos")
+                .whereEqualTo("visibility", "public")
+                .whereEqualTo("moderationStatus", "approved")
+                .get(Source.SERVER)
+                .await()
+            db.collection("creators")
+                .whereEqualTo("accountStatus", "active")
+                .get(Source.SERVER)
+                .await()
+            db.collection("creators").document(uid).get(Source.SERVER).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("JanzRepository", "Server refresh failed: ${e.message}")
             Result.failure(e)
         }
     }
@@ -519,7 +548,7 @@ class JanzRepository(
         language: String,
         visibility: String,
         shortForm: Boolean,
-        onProgress: (Float, String) -> Unit
+        onProgress: (progress: Float, mbText: String, statusText: String, indeterminate: Boolean) -> Unit
     ): Result<String> {
         val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Not signed in"))
         return try {
@@ -528,7 +557,7 @@ class JanzRepository(
 
             val useCloud = CloudinaryUploader.isConfigured()
 
-            onProgress(0.08f, "Extracting video details & thumbnail...")
+            onProgress(0.03f, "", "Preparing video & extracting preview...", true)
             val metaSource = when {
                 pickedVideoUri != null -> pickedVideoUri.toString()
                 remoteVideoUrl.trim().startsWith("http") -> remoteVideoUrl.trim()
@@ -538,20 +567,35 @@ class JanzRepository(
 
             val finalVideoUri = when {
                 pickedVideoUri != null && useCloud -> {
-                    onProgress(0.15f, "Uploading video to cloud...")
-                    CloudinaryUploader.uploadVideoUri(appContext, pickedVideoUri, "janzflare/videos") { fraction ->
-                        val pct = (fraction * 100f).toInt().coerceIn(0, 100)
-                        onProgress(0.15f + fraction * 0.55f, "Uploading video to cloud ($pct%)...")
+                    onProgress(0.05f, "0.0 MB", "Starting upload...", true)
+                    CloudinaryUploader.uploadVideoUri(appContext, pickedVideoUri, "janzflare/videos") { bytesUploaded, totalBytes ->
+                        if (totalBytes > 0L) {
+                            val rawFraction = (bytesUploaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            val uiProgress = 0.05f + rawFraction * 0.85f // 5% -> 90% strictly for video byte transfer
+                            val transferPct = (rawFraction * 100f).toInt().coerceIn(0, 100)
+                            val mbDone = CloudinaryUploader.formatBytesAsMb(bytesUploaded)
+                            val mbTotal = CloudinaryUploader.formatBytesAsMb(totalBytes)
+                            val mbLabel = "$mbDone MB / $mbTotal MB"
+                            val stageLabel = if (bytesUploaded >= totalBytes) {
+                                "Video uploaded ($mbLabel) • Processing on server..."
+                            } else {
+                                "Uploading video ($transferPct%) • $mbLabel"
+                            }
+                            onProgress(uiProgress, mbLabel, stageLabel, false)
+                        } else {
+                            val mbDone = CloudinaryUploader.formatBytesAsMb(bytesUploaded)
+                            onProgress(0.50f, "$mbDone MB", "Uploading video • $mbDone MB...", true)
+                        }
                     }.take(1000)
                 }
                 pickedVideoUri != null -> {
-                    onProgress(0.30f, "Saving video locally...")
+                    onProgress(0.45f, "", "Saving video locally...", true)
                     copyUriToInternal(pickedVideoUri, "videos", "mp4")
                 }
                 else -> remoteVideoUrl.trim().take(1000)
             }
 
-            onProgress(0.75f, if (useCloud) "Uploading thumbnail to cloud..." else "Saving thumbnail...")
+            onProgress(0.92f, "", "Processing video & thumbnail...", true)
             val finalThumbUri = when {
                 pickedThumbUri != null && useCloud -> {
                     CloudinaryUploader.uploadImageUri(appContext, pickedThumbUri, "janzflare/thumbnails", maxDimPx = 1280).take(1000)
@@ -571,7 +615,7 @@ class JanzRepository(
                 else -> ""
             }
 
-            onProgress(0.90f, "Publishing to JanzFlare...")
+            onProgress(0.96f, "", "Processing & publishing to JanzFlare...", true)
             val videoRef = db.collection("videos").document()
             val cleanTags = tags.map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }.take(10)
             val payload = mapOf(
@@ -633,7 +677,7 @@ class JanzRepository(
                     Log.w("JanzRepository", "Non-fatal subscriber upload notify error: ${e.message}")
                 }
             }
-            onProgress(1f, "Published!")
+            onProgress(1f, "", "100% • Video uploaded & published successfully!", false)
             Result.success(videoRef.id)
         } catch (e: CancellationException) {
             throw e

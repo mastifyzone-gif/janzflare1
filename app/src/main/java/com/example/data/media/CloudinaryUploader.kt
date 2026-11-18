@@ -53,11 +53,17 @@ object CloudinaryUploader {
         return "${prefix}c_limit,w_1280,h_1280,vc_h264,f_mp4,q_auto/$normalizedRest"
     }
 
+    fun formatBytesAsMb(bytes: Long): String {
+        if (bytes <= 0L) return "0.0"
+        val mb = bytes / (1024.0 * 1024.0)
+        return String.format(java.util.Locale.US, "%.1f", mb)
+    }
+
     suspend fun uploadVideoUri(
         context: Context,
         uri: Uri,
         folder: String = "janzflare/videos",
-        onProgress: (Float) -> Unit = {}
+        onProgress: (bytesUploaded: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): String = withContext(Dispatchers.IO) {
         val cloudName = BuildConfig.CLOUDINARY_CLOUD_NAME.trim()
         val preset = BuildConfig.CLOUDINARY_UPLOAD_PRESET.trim()
@@ -85,19 +91,25 @@ object CloudinaryUploader {
                 input.use { stream ->
                     val buffer = ByteArray(16 * 1024)
                     var uploaded = 0L
-                    var lastReported = -1f
+                    var lastReportedPct = -1
+                    var lastReportedBytes = 0L
                     var read: Int
                     while (stream.read(buffer).also { read = it } != -1) {
                         sink.write(buffer, 0, read)
                         uploaded += read
                         if (contentLength > 0L) {
-                            val fraction = (uploaded.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f)
-                            if (fraction - lastReported >= 0.01f || fraction >= 1f) {
-                                lastReported = fraction
-                                onProgress(fraction)
+                            val pct = ((uploaded * 100L) / contentLength).toInt().coerceIn(0, 100)
+                            if (pct != lastReportedPct || uploaded - lastReportedBytes >= 256 * 1024L || uploaded >= contentLength) {
+                                lastReportedPct = pct
+                                lastReportedBytes = uploaded
+                                onProgress(uploaded, contentLength)
                             }
+                        } else if (uploaded - lastReportedBytes >= 256 * 1024L) {
+                            lastReportedBytes = uploaded
+                            onProgress(uploaded, uploaded)
                         }
                     }
+                    onProgress(uploaded, if (contentLength > 0L) contentLength else uploaded)
                 }
             }
         }

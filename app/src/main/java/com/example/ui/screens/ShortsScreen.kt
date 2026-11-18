@@ -110,6 +110,7 @@ fun ShortsScreen(
     val likedIds by viewModel.likedVideoIds.collectAsStateWithLifecycle()
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
     val followMap = remember(following) { following.associateBy { it.creatorId } }
@@ -159,12 +160,21 @@ fun ShortsScreen(
                     .padding(20.dp),
                 contentAlignment = Alignment.Center
             ) {
-                EmptyStudioCard(
-                    title = "No Shorts Published Yet",
-                    subtitle = "Swipe-ready 9:16 vertical videos appear here as soon as you or other creators upload Shorts.",
-                    actionLabel = "Create a Short",
-                    onActionClick = onOpenUpload
-                )
+                if (!isOnline) {
+                    EmptyStudioCard(
+                        title = "Weak or No Internet Connection",
+                        subtitle = "Could not load Shorts right now. Check your network and tap Retry.",
+                        actionLabel = "Retry",
+                        onActionClick = viewModel::refreshFeed
+                    )
+                } else {
+                    EmptyStudioCard(
+                        title = "No Shorts Published Yet",
+                        subtitle = "Swipe-ready 9:16 vertical videos appear here as soon as you or other creators upload Shorts.",
+                        actionLabel = "Create a Short",
+                        onActionClick = onOpenUpload
+                    )
+                }
             }
         }
         return
@@ -211,6 +221,7 @@ fun ShortsScreen(
             video = shortVideo,
             creator = creator,
             isActive = isActive,
+            isOnline = isOnline,
             isLiked = isLiked,
             isSaved = isSaved,
             isFollowing = isFollowing,
@@ -303,6 +314,7 @@ private fun ShortPlayerPage(
     video: Video,
     creator: CreatorProfile?,
     isActive: Boolean,
+    isOnline: Boolean,
     isLiked: Boolean,
     isSaved: Boolean,
     isFollowing: Boolean,
@@ -324,6 +336,7 @@ private fun ShortPlayerPage(
     var activePlaybackUri by remember { mutableStateOf(video.videoUri) }
     var triedTranscodeFallback by remember { mutableStateOf(false) }
     var isPreparingFallback by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(true) }
     var playerErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val currentIsActive by rememberUpdatedState(isActive)
@@ -364,6 +377,7 @@ private fun ShortPlayerPage(
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_IDLE
                 if (playbackState == Player.STATE_READY) {
                     isPreparingFallback = false
                     playerErrorMessage = null
@@ -417,7 +431,7 @@ private fun ShortPlayerPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (isPreparingFallback) {
+        if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -427,11 +441,28 @@ private fun ShortPlayerPage(
             ) {
                 CircularProgressIndicator(color = FlareOrange, modifier = Modifier.size(34.dp))
                 Text(
-                    text = "Optimizing video for your phone...",
+                    text = when {
+                        isPreparingFallback -> "Optimizing video for your phone..."
+                        !isOnline -> "Weak or no internet connection — waiting to load..."
+                        else -> "Loading Short..."
+                    },
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
+                if (!isOnline) {
+                    OutlinedButton(onClick = {
+                        playerErrorMessage = null
+                        val retryUri = activePlaybackUri.ifBlank { video.videoUri }
+                        exoPlayer.setMediaItem(MediaItem.fromUri(retryUri))
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }) {
+                        Icon(Icons.Default.Refresh, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Retry", color = Color.White)
+                    }
+                }
             }
         } else if (localVideoMissing || playerErrorMessage != null) {
             Column(
@@ -445,6 +476,8 @@ private fun ShortPlayerPage(
                 Text(
                     text = if (localVideoMissing) {
                         "Short unavailable on this phone"
+                    } else if (!isOnline) {
+                        "Weak or no internet connection. Check network and tap Retry."
                     } else {
                         playerErrorMessage.orEmpty()
                     },

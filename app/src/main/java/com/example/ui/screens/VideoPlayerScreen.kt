@@ -115,6 +115,7 @@ import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
+import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.VerifiedAffiliationBadges
@@ -150,6 +151,7 @@ fun VideoPlayerScreen(
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     val allVideos = remember(publicVideosState, myVideosState) {
         val pub = (publicVideosState as? UiState.Success)?.data.orEmpty()
@@ -184,6 +186,7 @@ fun VideoPlayerScreen(
     var activePlaybackUri by remember { mutableStateOf("") }
     var triedTranscodeFallback by remember { mutableStateOf(false) }
     var isPreparingFallback by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(true) }
     var playerErrorMessage by remember { mutableStateOf<String?>(null) }
     val localVideoMissing = remember(video?.videoUri) {
         video != null && isLocalFileMissing(video.videoUri)
@@ -289,6 +292,7 @@ fun VideoPlayerScreen(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                isBuffering = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
                 if (state == Player.STATE_READY) {
                     isPreparingFallback = false
                     playerErrorMessage = null
@@ -407,7 +411,7 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            if (isPreparingFallback) {
+            if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -423,10 +427,28 @@ fun VideoPlayerScreen(
                             modifier = Modifier.size(32.dp)
                         )
                         Text(
-                            text = "Optimizing video for your phone...",
+                            text = when {
+                                isPreparingFallback -> "Optimizing video for your phone..."
+                                !isOnline -> "Weak or no internet connection — waiting to buffer..."
+                                else -> "Loading video..."
+                            },
                             color = Color.White,
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center
                         )
+                        if (!isOnline) {
+                            OutlinedButton(onClick = {
+                                playerErrorMessage = null
+                                val retryUri = activePlaybackUri.ifBlank { video.videoUri }
+                                exoPlayer.setMediaItem(MediaItem.fromUri(retryUri))
+                                exoPlayer.prepare()
+                                exoPlayer.playWhenReady = true
+                            }) {
+                                Icon(Icons.Default.Refresh, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Retry", color = Color.White)
+                            }
+                        }
                     }
                 }
             } else if (localVideoMissing || playerErrorMessage != null) {
@@ -707,6 +729,24 @@ fun VideoPlayerScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                if (!isOnline) {
+                    item {
+                        NetworkStatusBanner(
+                            isOnline = isOnline,
+                            onRetry = {
+                                viewModel.refreshFeed()
+                                val retryUri = activePlaybackUri.ifBlank { video.videoUri }
+                                if (retryUri.isNotBlank() && !localVideoMissing) {
+                                    playerErrorMessage = null
+                                    exoPlayer.setMediaItem(MediaItem.fromUri(retryUri))
+                                    exoPlayer.prepare()
+                                    exoPlayer.playWhenReady = true
+                                }
+                            }
+                        )
+                    }
+                }
+
                 // Title & Metadata
                 item {
                     Column {

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -43,9 +44,11 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.WatchLater
+import com.example.data.media.CloudinaryUploader
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -1031,13 +1034,68 @@ fun PlaylistPickerDialog(
 }
 
 fun shareVideoIntent(context: Context, video: Video) {
-    val shareText = "Watch \"${video.title}\" by ${video.creatorName} on JanzFlare!\nCategory: ${video.category} • ${video.language}"
+    val appDeepLink = "https://janzflare.app/watch/${video.id}"
+    val directVideoUrl = CloudinaryUploader.buildCompatibleVideoUrl(video.videoUri)
+        ?: video.videoUri.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    val shareText = buildString {
+        append("Watch \"${video.title}\" by ${video.creatorName} on JanzFlare!\n\n")
+        append("Open in JanzFlare App:\n$appDeepLink")
+        if (!directVideoUrl.isNullOrBlank()) {
+            append("\n\nWatch or Download Video (No app needed):\n$directVideoUrl")
+        }
+        append("\n\nCategory: ${video.category} • ${video.language}")
+    }
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, video.title)
+        putExtra(Intent.EXTRA_SUBJECT, "${video.title} — JanzFlare")
         putExtra(Intent.EXTRA_TEXT, shareText)
     }
     context.startActivity(Intent.createChooser(intent, "Share video via"))
+}
+
+@Composable
+fun NetworkStatusBanner(
+    isOnline: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (isOnline) return
+    Surface(
+        color = FlareAmber.copy(alpha = 0.16f),
+        border = BorderStroke(1.dp, FlareAmber.copy(alpha = 0.55f)),
+        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.CloudOff,
+                contentDescription = "Weak or no internet",
+                tint = FlareOrange,
+                modifier = Modifier.size(20.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Weak or no internet connection",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Pull down or tap Retry to refresh feed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onRetry) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Retry")
+            }
+        }
+    }
 }
 
 fun formatDuration(seconds: Long): String {

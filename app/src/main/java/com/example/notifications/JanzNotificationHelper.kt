@@ -20,6 +20,8 @@ import com.example.data.model.UserAccount
 object JanzNotificationHelper {
 
     const val CHANNEL_ID = "janzflare_alerts"
+    const val UPLOAD_CHANNEL_ID = "janzflare_uploads"
+    const val UPLOAD_NOTIFICATION_ID = 4201
     const val EXTRA_VIDEO_ID = "extra_video_id"
     const val EXTRA_OPEN_NOTIFICATIONS = "extra_open_notifications"
     private const val PREFS_NAME = "janz_notif_prefs"
@@ -27,8 +29,7 @@ object JanzNotificationHelper {
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-            val existing = manager.getNotificationChannel(CHANNEL_ID)
-            if (existing == null) {
+            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     "JanzFlare Activity & Uploads",
@@ -38,6 +39,18 @@ object JanzNotificationHelper {
                     enableVibration(true)
                 }
                 manager.createNotificationChannel(channel)
+            }
+            if (manager.getNotificationChannel(UPLOAD_CHANNEL_ID) == null) {
+                val uploadChannel = NotificationChannel(
+                    UPLOAD_CHANNEL_ID,
+                    "Video Upload Progress",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Shows live upload MB progress and completion in the status bar."
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+                manager.createNotificationChannel(uploadChannel)
             }
         }
     }
@@ -180,6 +193,88 @@ object JanzNotificationHelper {
             NotificationManagerCompat.from(context).notify(notif.id.hashCode(), builder.build())
         } catch (_: SecurityException) {
             // Ignored if permission was revoked at runtime
+        }
+    }
+
+    fun showUploadProgressNotification(
+        context: Context,
+        videoTitle: String,
+        progressPct: Int,
+        indeterminate: Boolean,
+        detailText: String
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannel(context)
+
+        val builder = NotificationCompat.Builder(context, UPLOAD_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif_flame)
+            .setColor(0xFFFF6B2C.toInt())
+            .setContentTitle("Uploading: ${videoTitle.ifBlank { "JanzFlare Video" }.take(40)}")
+            .setContentText(detailText)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setProgress(100, progressPct.coerceIn(0, 100), indeterminate)
+
+        try {
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
+
+    fun showUploadCompleteNotification(
+        context: Context,
+        videoId: String?,
+        videoTitle: String,
+        success: Boolean,
+        message: String
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannel(context)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (success && !videoId.isNullOrBlank()) {
+                putExtra(EXTRA_VIDEO_ID, videoId)
+            }
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            UPLOAD_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val largeLogo = runCatching {
+            BitmapFactory.decodeResource(context.resources, R.drawable.logo_janzflare)
+        }.getOrNull()
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif_flame)
+            .setColor(0xFFFF6B2C.toInt())
+            .setContentTitle(
+                if (success) "Upload Complete • 100%" else "Upload Failed"
+            )
+            .setContentText(if (success) "\"${videoTitle.take(45)}\" is live on JanzFlare" else message)
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    if (success) "\"${videoTitle.take(45)}\" is now ready to watch and share." else message
+                )
+            )
+            .setProgress(0, 0, false)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+
+        if (largeLogo != null) {
+            builder.setLargeIcon(largeLogo)
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, builder.build())
+        } catch (_: SecurityException) {
         }
     }
 }

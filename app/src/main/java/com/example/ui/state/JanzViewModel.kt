@@ -1,6 +1,9 @@
 package com.example.ui.state
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -24,6 +27,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,6 +40,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface UiState<out T> {
     data object Loading : UiState<Nothing>
@@ -60,6 +65,7 @@ enum class SearchSortMode(val label: String) {
 data class UploadProgressState(
     val uploading: Boolean = false,
     val progress: Float = 0f,
+    val mbText: String = "",
     val statusText: String = ""
 )
 
@@ -101,6 +107,35 @@ class JanzViewModel(
 
     private val _focusedShortId = MutableStateFlow<String?>(null)
     val focusedShortId: StateFlow<String?> = _focusedShortId.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _isOnline = MutableStateFlow(checkCurrentConnectivity())
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+    private val connectivityManager =
+        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            _isOnline.value = checkCurrentConnectivity()
+        }
+
+        override fun onLost(network: Network) {
+            _isOnline.value = checkCurrentConnectivity()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            _isOnline.value = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+    }
+
+    private fun checkCurrentConnectivity(): Boolean {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
 
     private fun <T> Flow<T>.toUiState(defaultError: String): StateFlow<UiState<T>> =
         this.map<T, UiState<T>> { UiState.Success(it) }
@@ -280,6 +315,7 @@ class JanzViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
     init {
+        runCatching { connectivityManager?.registerDefaultNetworkCallback(networkCallback) }
         viewModelScope.launch {
             repository.ensureUserAndCreatorInitialized(currentFirebaseUser)
                 .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to initialize profile" }
@@ -299,6 +335,35 @@ class JanzViewModel(
                         userPrefs = userPrefs
                     )
                 }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        runCatching { connectivityManager?.unregisterNetworkCallback(networkCallback) }
+    }
+
+    fun refreshFeed() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _isOnline.value = checkCurrentConnectivity()
+            if (!_isOnline.value) {
+                delay(450L)
+                _isRefreshing.value = false
+                _snackbarMessage.value = "Weak or no internet connection. Please check your network."
+                return@launch
+            }
+            val startMs = System.currentTimeMillis()
+            val refreshResult = withTimeoutOrNull(10_000L) {
+                repository.forceRefreshFromServer(currentUserId)
+            }
+            val elapsed = System.currentTimeMillis() - startMs
+            if (elapsed < 600L) delay(600L - elapsed)
+            _isRefreshing.value = false
+            if (refreshResult == null || refreshResult.isFailure) {
+                _snackbarMessage.value = "Slow internet connection — could not refresh from server."
             }
         }
     }
@@ -337,7 +402,19 @@ class JanzViewModel(
         val creator = (ownCreatorState.value as? UiState.Success)?.data ?: return
         val tags = tagsInput.split(",", " ").map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }
         viewModelScope.launch {
-            _uploadState.value = UploadProgressState(uploading = true, progress = 0.05f, statusText = "Starting upload...")
+            _uploadState.value = UploadProgressState(
+                uploading = true,
+                progress = 0.03f,
+                mbText = "",
+                statusText = "Preparing upload..."
+            )
+            JanzNotificationHelper.showUploadProgressNotification(
+                context = appContext,
+                videoTitle = title,
+                progressPct = 3,
+                indeterminate = true,
+                detailText = "Preparing upload..."
+            )
             val result = repository.publishVideo(
                 creator = creator,
                 title = title,
@@ -350,16 +427,44 @@ class JanzViewModel(
                 language = language,
                 visibility = visibility,
                 shortForm = shortForm,
-                onProgress = { progress, text ->
-                    _uploadState.value = UploadProgressState(uploading = true, progress = progress, statusText = text)
+                onProgress = { progress, mbText, statusText, indeterminate ->
+                    _uploadState.value = UploadProgressState(
+                        uploading = true,
+                        progress = progress,
+                        mbText = mbText,
+                        statusText = statusText
+                    )
+                    val pct = (progress * 100f).toInt().coerceIn(0, 100)
+                    JanzNotificationHelper.showUploadProgressNotification(
+                        context = appContext,
+                        videoTitle = title,
+                        progressPct = pct,
+                        indeterminate = indeterminate,
+                        detailText = statusText
+                    )
                 }
             )
             _uploadState.value = UploadProgressState()
             result.onSuccess { newId ->
-                _snackbarMessage.value = "Video published to JanzFlare!"
+                JanzNotificationHelper.showUploadCompleteNotification(
+                    context = appContext,
+                    videoId = newId,
+                    videoTitle = title,
+                    success = true,
+                    message = "Video published successfully!"
+                )
+                _snackbarMessage.value = "100% • Video uploaded & published!"
                 onPublished(newId)
             }.onFailure { err ->
-                _snackbarMessage.value = err.localizedMessage ?: "Failed to publish video"
+                val errMsg = err.localizedMessage ?: "Failed to publish video"
+                JanzNotificationHelper.showUploadCompleteNotification(
+                    context = appContext,
+                    videoId = null,
+                    videoTitle = title,
+                    success = false,
+                    message = errMsg
+                )
+                _snackbarMessage.value = errMsg
             }
         }
     }
@@ -483,10 +588,23 @@ class JanzViewModel(
         interests: List<String>,
         avatarUri: Uri?,
         coverUri: Uri?,
+        removeAvatar: Boolean = false,
+        removeCover: Boolean = false,
         onDone: () -> Unit
     ) {
         viewModelScope.launch {
-            repository.updateProfile(displayName, username, bio, socialLink, preferredLanguage, interests, avatarUri, coverUri)
+            repository.updateProfile(
+                displayName = displayName,
+                username = username,
+                bio = bio,
+                socialLink = socialLink,
+                preferredLanguage = preferredLanguage,
+                interests = interests,
+                avatarUri = avatarUri,
+                coverUri = coverUri,
+                removeAvatar = removeAvatar,
+                removeCover = removeCover
+            )
                 .onSuccess {
                     _snackbarMessage.value = "Profile updated"
                     onDone()

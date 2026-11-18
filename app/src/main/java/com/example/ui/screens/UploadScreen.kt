@@ -51,10 +51,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.JanzCatalog
+import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.state.JanzViewModel
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -65,6 +68,7 @@ fun UploadScreen(
 ) {
     val activeCategories by viewModel.activeCategories.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     var pickedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var remoteVideoUrl by remember { mutableStateOf("") }
@@ -105,6 +109,11 @@ fun UploadScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            NetworkStatusBanner(
+                isOnline = isOnline,
+                onRetry = viewModel::refreshFeed
+            )
+
             // Video Picker Card (Zero-permission Android Photo Picker)
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -301,17 +310,45 @@ fun UploadScreen(
             }
 
             if (uploadState.uploading) {
+                val pct = (uploadState.progress * 100f).roundToInt().coerceIn(0, 100)
                 Card(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text(uploadState.statusText, style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = uploadState.statusText,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "$pct%",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (uploadState.mbText.isNotBlank()) {
+                            Text(
+                                text = uploadState.mbText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
                         LinearProgressIndicator(
-                            progress = { uploadState.progress },
-                            modifier = Modifier.fillMaxWidth()
+                            progress = { uploadState.progress.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
                         )
                     }
                 }

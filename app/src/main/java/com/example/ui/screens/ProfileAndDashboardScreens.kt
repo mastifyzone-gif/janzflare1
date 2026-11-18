@@ -70,6 +70,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -98,7 +99,9 @@ import com.example.data.model.MonetizationRequest
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.ImageCropRotateDialog
 import com.example.ui.components.JanzFlareMark
+import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ProfileHeaderSkeleton
 import com.example.ui.components.ReportContentDialog
@@ -130,7 +133,6 @@ fun ProfileScreen(
     onOpenDashboard: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenUpload: () -> Unit,
-    onOpenMonetize: () -> Unit = onOpenDashboard,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -149,6 +151,8 @@ fun ProfileScreen(
     val likedIds by viewModel.likedVideoIds.collectAsStateWithLifecycle()
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
     val creatorVideos = remember(isOwnProfile, creatorId, publicVideosState, myVideosState) {
@@ -275,22 +279,39 @@ fun ProfileScreen(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::refreshFeed,
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Cover Banner + Avatar + Header Info
-            item {
-                if (isLoadingCreator) {
-                    ProfileHeaderSkeleton()
-                } else if (creator == null) {
-                    EmptyStudioCard(
-                        title = "Channel Unavailable",
-                        subtitle = "Could not load this creator's profile. Please check your connection and try again.",
-                        modifier = Modifier.padding(16.dp)
-                    )
-                } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (!isOnline) {
+                    item {
+                        NetworkStatusBanner(
+                            isOnline = isOnline,
+                            onRetry = viewModel::refreshFeed,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Cover Banner + Avatar + Header Info
+                item {
+                    if (isRefreshing || isLoadingCreator) {
+                        ProfileHeaderSkeleton()
+                    } else if (creator == null) {
+                        EmptyStudioCard(
+                            title = "Channel Unavailable",
+                            subtitle = "Could not load this creator's profile. Please check your connection and try again.",
+                            actionLabel = "Retry",
+                            onActionClick = viewModel::refreshFeed,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    } else {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     val coverUrl = creator?.coverUrl.orEmpty()
                     val coverAvailable = remember(coverUrl) { isMediaUriAvailable(coverUrl) }
@@ -416,39 +437,28 @@ fun ProfileScreen(
                         if (isOwnProfile) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 OutlinedButton(
                                     onClick = { showEditDialog = true },
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("edit_profile_button")
                                 ) {
-                                    Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Edit", maxLines = 1)
-                                }
-                                OutlinedButton(
-                                    onClick = onOpenDashboard,
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.Analytics, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Studio", maxLines = 1)
+                                    Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Edit Profile")
                                 }
                                 Button(
-                                    onClick = onOpenMonetize,
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                    onClick = onOpenDashboard,
                                     colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .testTag("profile_earn_button")
+                                        .testTag("profile_studio_button")
                                 ) {
-                                    Icon(Icons.Default.MonetizationOn, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Earn", maxLines = 1)
+                                    Icon(Icons.Default.Analytics, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Studio")
                                 }
                             }
                         } else {
@@ -514,7 +524,7 @@ fun ProfileScreen(
             when (currentTabName) {
                 "Videos" -> {
                     val standardVideos = creatorVideos.filter { !it.shortForm }
-                    if (isLoadingVideos && standardVideos.isEmpty()) {
+                    if (isRefreshing || (isLoadingVideos && standardVideos.isEmpty())) {
                         items(2) {
                             VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
                         }
@@ -556,7 +566,7 @@ fun ProfileScreen(
 
                 "Shorts" -> {
                     val shorts = creatorVideos.filter { it.shortForm || it.category == "Shorts" }
-                    if (isLoadingVideos && shorts.isEmpty()) {
+                    if (isRefreshing || (isLoadingVideos && shorts.isEmpty())) {
                         items(2) {
                             VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
                         }
@@ -742,6 +752,7 @@ fun ProfileScreen(
                 }
             }
         }
+        }
     }
 
     if (showEditDialog && creator != null) {
@@ -750,7 +761,7 @@ fun ProfileScreen(
             preferredLanguage = user?.preferredLanguage ?: "Hindi",
             interests = user?.interests.orEmpty(),
             onDismiss = { showEditDialog = false },
-            onSave = { name, username, bio, social, lang, newInterests, avatarUri, coverUri ->
+            onSave = { name, username, bio, social, lang, newInterests, avatarUri, coverUri, removeAvatar, removeCover ->
                 viewModel.updateProfile(
                     displayName = name,
                     username = username,
@@ -760,6 +771,8 @@ fun ProfileScreen(
                     interests = newInterests,
                     avatarUri = avatarUri,
                     coverUri = coverUri,
+                    removeAvatar = removeAvatar,
+                    removeCover = removeCover,
                     onDone = { showEditDialog = false }
                 )
             }
@@ -841,7 +854,7 @@ private fun EditProfileDialog(
     preferredLanguage: String,
     interests: List<String>,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String, String, List<String>, Uri?, Uri?) -> Unit
+    onSave: (String, String, String, String, String, List<String>, Uri?, Uri?, Boolean, Boolean) -> Unit
 ) {
     var displayName by remember { mutableStateOf(creator.displayName) }
     var username by remember { mutableStateOf(creator.username) }
@@ -851,13 +864,46 @@ private fun EditProfileDialog(
     var selectedInterests by remember { mutableStateOf(interests.toSet()) }
     var avatarUri by remember { mutableStateOf<Uri?>(null) }
     var coverUri by remember { mutableStateOf<Uri?>(null) }
+    var removeAvatar by remember { mutableStateOf(false) }
+    var removeCover by remember { mutableStateOf(false) }
+    var pendingCropAvatarUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingCropCoverUri by remember { mutableStateOf<Uri?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) avatarUri = uri
+        if (uri != null) pendingCropAvatarUri = uri
     }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) coverUri = uri
+        if (uri != null) pendingCropCoverUri = uri
     }
+
+    pendingCropAvatarUri?.let { rawUri ->
+        ImageCropRotateDialog(
+            sourceUri = rawUri,
+            isCircularAvatar = true,
+            onDismiss = { pendingCropAvatarUri = null },
+            onCropped = { croppedUri ->
+                avatarUri = croppedUri
+                removeAvatar = false
+                pendingCropAvatarUri = null
+            }
+        )
+    }
+
+    pendingCropCoverUri?.let { rawUri ->
+        ImageCropRotateDialog(
+            sourceUri = rawUri,
+            isCircularAvatar = false,
+            onDismiss = { pendingCropCoverUri = null },
+            onCropped = { croppedUri ->
+                coverUri = croppedUri
+                removeCover = false
+                pendingCropCoverUri = null
+            }
+        )
+    }
+
+    val hasExistingAvatar = !removeAvatar && (avatarUri != null || isMediaUriAvailable(creator.avatarUrl))
+    val hasExistingCover = !removeCover && (coverUri != null || isMediaUriAvailable(creator.coverUrl))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -867,23 +913,116 @@ private fun EditProfileDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (isLocalFileMissing(creator.avatarUrl) && avatarUri == null) {
+                if (isLocalFileMissing(creator.avatarUrl) && avatarUri == null && !removeAvatar) {
                     Text(
                         text = "Previous profile photo is unavailable. Tap Change Avatar to choose a new one.",
                         style = MaterialTheme.typography.bodySmall,
                         color = FlareOrange
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        modifier = Modifier.weight(1f)
-                    ) { Text(if (avatarUri != null) "Avatar ✓" else "Change Avatar") }
-                    OutlinedButton(
-                        onClick = { coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        modifier = Modifier.weight(1f)
-                    ) { Text(if (coverUri != null) "Cover ✓" else "Change Cover") }
+
+                // Avatar Row: Preview + Crop/Rotate + Remove
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    CreatorAvatar(
+                        avatarUrl = when {
+                            removeAvatar -> ""
+                            avatarUri != null -> avatarUri.toString()
+                            else -> creator.avatarUrl
+                        },
+                        name = displayName,
+                        size = 52.dp
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = if (avatarUri != null) "Avatar Cropped ✓" else "Change Avatar",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (hasExistingAvatar) {
+                                TextButton(
+                                    onClick = {
+                                        avatarUri = null
+                                        removeAvatar = true
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Remove profile photo", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(2.dp))
+                                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                        if (removeAvatar) {
+                            Text(
+                                text = "Profile photo will be removed when saved",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
+
+                // Cover Row: Crop/Rotate + Remove
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (coverUri != null && !removeCover) {
+                        AsyncImage(
+                            model = coverUri,
+                            contentDescription = "Cropped cover preview",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(72.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = {
+                                coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (coverUri != null) "Cover Cropped ✓" else "Change Cover",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (hasExistingCover) {
+                            TextButton(
+                                onClick = {
+                                    coverUri = null
+                                    removeCover = true
+                                }
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Remove cover photo", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(2.dp))
+                                Text("Remove", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                    if (removeCover) {
+                        Text(
+                            text = "Cover photo will be removed when saved",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+
                 OutlinedTextField(value = displayName, onValueChange = { displayName = it.take(60) }, label = { Text("Display Name") })
                 OutlinedTextField(value = username, onValueChange = { username = it.take(30) }, label = { Text("Username") })
                 OutlinedTextField(value = bio, onValueChange = { bio = it.take(300) }, label = { Text("Bio") }, maxLines = 3)
@@ -916,7 +1055,18 @@ private fun EditProfileDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(displayName, username, bio, socialLink, selectedLang, selectedInterests.toList(), avatarUri, coverUri)
+                    onSave(
+                        displayName,
+                        username,
+                        bio,
+                        socialLink,
+                        selectedLang,
+                        selectedInterests.toList(),
+                        avatarUri,
+                        coverUri,
+                        removeAvatar,
+                        removeCover
+                    )
                 },
                 enabled = displayName.isNotBlank() && username.trim().length >= 3
             ) { Text("Save") }
@@ -939,6 +1089,8 @@ fun CreatorDashboardScreen(
     val ownCreatorState by viewModel.ownCreatorState.collectAsStateWithLifecycle()
     val myVideosState by viewModel.myVideosState.collectAsStateWithLifecycle()
     val monetizationRequest by viewModel.monetizationRequest.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
     val creator = (ownCreatorState as? UiState.Success)?.data
     val videos = (myVideosState as? UiState.Success)?.data.orEmpty()
@@ -988,13 +1140,26 @@ fun CreatorDashboardScreen(
             )
         }
 
-        if (selectedTab == 0) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                item {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::refreshFeed,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (selectedTab == 0) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    if (!isOnline) {
+                        item {
+                            NetworkStatusBanner(
+                                isOnline = isOnline,
+                                onRetry = viewModel::refreshFeed
+                            )
+                        }
+                    }
+                    item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Channel Analytics", style = MaterialTheme.typography.titleLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1116,6 +1281,7 @@ fun CreatorDashboardScreen(
                 monetizationRequest = monetizationRequest,
                 onApplyClick = { showApplyDialog = true }
             )
+        }
         }
     }
 
