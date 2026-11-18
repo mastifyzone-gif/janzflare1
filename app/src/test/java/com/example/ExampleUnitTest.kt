@@ -71,4 +71,16 @@ class ExampleUnitTest {
         assertEquals("founder_1", popRanked.first().creatorId)
         assertEquals("founder_1", newRanked.first().creatorId)
     }
+
+    @Test
+    fun cloudinaryUploader_buildCompatibleVideoUrl_transforms_once_only() {
+        val raw = "https://res.cloudinary.com/pyfiml5f/video/upload/v1763456789/janzflare/videos/clip.mov"
+        val transformed = com.example.data.media.CloudinaryUploader.buildCompatibleVideoUrl(raw)
+        assertEquals(
+            "https://res.cloudinary.com/pyfiml5f/video/upload/c_limit,w_1280,h_1280,vc_h264,f_mp4,q_auto/v1763456789/janzflare/videos/clip.mp4",
+            transformed
+        )
+        assertEquals(null, com.example.data.media.CloudinaryUploader.buildCompatibleVideoUrl(transformed!!))
+        assertEquals(null, com.example.data.media.CloudinaryUploader.buildCompatibleVideoUrl("https://example.com/video.mp4"))
+    }
 }

@@ -1,9 +1,14 @@
 package com.example
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -73,6 +79,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.auth.authStateFlow
 import com.example.data.repository.JanzRepository
+import com.example.notifications.JanzNotificationHelper
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CreatorDashboardScreen
@@ -104,18 +111,23 @@ object JanzRoutes {
     const val PROFILE = "profile"
     const val WATCH = "watch/{videoId}"
     const val CREATOR = "creator/{creatorId}"
-    const val DASHBOARD = "dashboard"
+    const val DASHBOARD = "dashboard?tab={tab}"
     const val NOTIFICATIONS = "notifications"
     const val SETTINGS = "settings"
     const val ADMIN = "admin"
 
     fun watch(videoId: String) = "watch/$videoId"
     fun creator(creatorId: String) = "creator/$creatorId"
+    fun dashboard(tab: Int = 0) = "dashboard?tab=$tab"
 }
 
 class MainActivity : ComponentActivity() {
+    private var pendingNotifVideoId by mutableStateOf<String?>(null)
+    private var pendingOpenNotifications by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNotificationIntent(intent)
         enableEdgeToEdge()
         setContent {
             val isFirebaseReady = remember { FirebaseApp.getApps(this).isNotEmpty() }
@@ -159,15 +171,45 @@ class MainActivity : ComponentActivity() {
             } else {
                 val user = currentUser!!
                 key(user.uid) {
-                    AuthenticatedJanzApp(user = user)
+                    AuthenticatedJanzApp(
+                        user = user,
+                        pendingVideoId = pendingNotifVideoId,
+                        pendingOpenNotifications = pendingOpenNotifications,
+                        onConsumedPendingDestination = {
+                            pendingNotifVideoId = null
+                            pendingOpenNotifications = false
+                        }
+                    )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        val vid = intent?.getStringExtra(JanzNotificationHelper.EXTRA_VIDEO_ID)
+        if (!vid.isNullOrBlank()) {
+            pendingNotifVideoId = vid
+            pendingOpenNotifications = false
+        } else if (intent?.getBooleanExtra(JanzNotificationHelper.EXTRA_OPEN_NOTIFICATIONS, false) == true) {
+            pendingOpenNotifications = true
         }
     }
 }
 
 @Composable
-private fun AuthenticatedJanzApp(user: FirebaseUser) {
+private fun AuthenticatedJanzApp(
+    user: FirebaseUser,
+    pendingVideoId: String?,
+    pendingOpenNotifications: Boolean,
+    onConsumedPendingDestination: () -> Unit
+) {
+    val context = LocalContext.current
     val viewModel: JanzViewModel = viewModel(
         key = user.uid,
         factory = viewModelFactory {
@@ -176,6 +218,7 @@ private fun AuthenticatedJanzApp(user: FirebaseUser) {
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 JanzViewModel(
+                    appContext = app.applicationContext,
                     repository = JanzRepository(db, app),
                     currentUserId = user.uid,
                     currentFirebaseUser = user
@@ -183,6 +226,21 @@ private fun AuthenticatedJanzApp(user: FirebaseUser) {
             }
         }
     )
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(user.uid) {
+        JanzNotificationHelper.ensureChannel(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !JanzNotificationHelper.hasNotificationPermission(context) &&
+            !JanzNotificationHelper.wasPermissionPromptShown(context)
+        ) {
+            JanzNotificationHelper.markPermissionPromptShown(context)
+            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val userAccountState by viewModel.userAccountState.collectAsStateWithLifecycle()
     val themeMode = (userAccountState as? UiState.Success)?.data?.themeMode ?: "dark"
@@ -198,6 +256,19 @@ private fun AuthenticatedJanzApp(user: FirebaseUser) {
 
     JanzFlareTheme(themeMode = themeMode) {
         val navController = rememberNavController()
+
+        LaunchedEffect(pendingVideoId, pendingOpenNotifications) {
+            when {
+                !pendingVideoId.isNullOrBlank() -> {
+                    navController.navigate(JanzRoutes.watch(pendingVideoId))
+                    onConsumedPendingDestination()
+                }
+                pendingOpenNotifications -> {
+                    navController.navigate(JanzRoutes.NOTIFICATIONS)
+                    onConsumedPendingDestination()
+                }
+            }
+        }
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
 
@@ -344,7 +415,8 @@ private fun AuthenticatedJanzApp(user: FirebaseUser) {
                                     onBack = { navController.popBackStack() },
                                     onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
-                                    onOpenDashboard = { navController.navigate(JanzRoutes.DASHBOARD) },
+                                    onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
+                                    onOpenMonetize = { navController.navigate(JanzRoutes.dashboard(1)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) }
                                 )
@@ -380,18 +452,29 @@ private fun AuthenticatedJanzApp(user: FirebaseUser) {
                                     onBack = { navController.popBackStack() },
                                     onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
-                                    onOpenDashboard = { navController.navigate(JanzRoutes.DASHBOARD) },
+                                    onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
+                                    onOpenMonetize = { navController.navigate(JanzRoutes.dashboard(1)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) }
                                 )
                             }
 
-                            composable(JanzRoutes.DASHBOARD) {
+                            composable(
+                                route = JanzRoutes.DASHBOARD,
+                                arguments = listOf(
+                                    navArgument("tab") {
+                                        type = NavType.IntType
+                                        defaultValue = 0
+                                    }
+                                )
+                            ) { backStackEntry ->
+                                val initialTab = backStackEntry.arguments?.getInt("tab") ?: 0
                                 CreatorDashboardScreen(
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) }
+                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    initialTab = initialTab
                                 )
                             }
 

@@ -40,6 +40,19 @@ object CloudinaryUploader {
         BuildConfig.CLOUDINARY_CLOUD_NAME.isNotBlank() &&
             BuildConfig.CLOUDINARY_UPLOAD_PRESET.isNotBlank()
 
+    fun buildCompatibleVideoUrl(url: String): String? {
+        val trimmed = url.trim()
+        if (!trimmed.startsWith("https://res.cloudinary.com/")) return null
+        val marker = "/video/upload/"
+        val idx = trimmed.indexOf(marker)
+        if (idx == -1) return null
+        val prefix = trimmed.substring(0, idx + marker.length)
+        val rest = trimmed.substring(idx + marker.length)
+        if (rest.contains("vc_h264")) return null
+        val normalizedRest = rest.replace(Regex("\\.[a-zA-Z0-9]+$"), ".mp4")
+        return "${prefix}c_limit,w_1280,h_1280,vc_h264,f_mp4,q_auto/$normalizedRest"
+    }
+
     suspend fun uploadVideoUri(
         context: Context,
         uri: Uri,

@@ -179,6 +179,22 @@ data class PlatformSettings(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
+@IgnoreExtraProperties
+data class MonetizationRequest(
+    @DocumentId val id: String = "",
+    val creatorId: String = "",
+    val displayName: String = "",
+    val username: String = "",
+    val followersCount: Long = 0L,
+    val watchTimeHours: Long = 0L,
+    val shortsEngagementViews: Long = 0L,
+    val payoutMethod: String = "UPI",
+    val status: String = "pending",
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+)
+
 object JanzCatalog {
     val allCategories = listOf(
         "Entertainment", "Comedy", "Music", "Gaming", "Education",

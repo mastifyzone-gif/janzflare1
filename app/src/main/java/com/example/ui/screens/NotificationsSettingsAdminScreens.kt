@@ -66,6 +66,7 @@ import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.auth.signOut
 import com.example.data.model.JanzCatalog
+import com.example.notifications.JanzNotificationHelper
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
@@ -81,13 +82,16 @@ fun NotificationsScreen(
     onBack: () -> Unit,
     onOpenVideo: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val userState by viewModel.userAccountState.collectAsStateWithLifecycle()
     val user = (userState as? UiState.Success)?.data
+    var hasNotifPerm by remember { mutableStateOf(JanzNotificationHelper.hasNotificationPermission(context)) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        hasNotifPerm = granted
         viewModel.showMessage(if (granted) "System notifications enabled" else "System notification permission denied")
     }
 
@@ -130,14 +134,24 @@ fun NotificationsScreen(
                             NotificationToggleRow("Creator Uploads", user.notifyUploads) {
                                 viewModel.updateNotificationPrefs(user.notifyLikes, user.notifyComments, user.notifyFollowers, it)
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifPerm) {
                                 OutlinedButton(
                                     onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(Icons.Default.NotificationsActive, null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Enable Device Push Alerts")
+                                    Text("Allow Mobile Status-Bar Notifications")
+                                }
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, null, tint = FlareOrange)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "Mobile status-bar notifications are active",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = FlareOrange
+                                    )
                                 }
                             }
                         }
@@ -380,10 +394,11 @@ fun AdminDashboardScreen(
     val creators by viewModel.adminCreators.collectAsStateWithLifecycle()
     val videos by viewModel.adminVideos.collectAsStateWithLifecycle()
     val reports by viewModel.reports.collectAsStateWithLifecycle()
+    val monetizationRequests by viewModel.adminMonetizationRequests.collectAsStateWithLifecycle()
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Overview", "Users", "Videos", "Reports", "Categories")
+    val tabs = listOf("Overview", "Users", "Videos", "Monetize", "Reports", "Categories")
 
     if (!isAdmin) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -544,6 +559,47 @@ fun AdminDashboardScreen(
                 }
 
                 3 -> {
+                    if (monetizationRequests.isEmpty()) {
+                        item {
+                            EmptyStudioCard(
+                                title = "No Monetization Requests",
+                                subtitle = "Creator partner applications appear here once creators qualify and apply."
+                            )
+                        }
+                    } else {
+                        items(monetizationRequests, key = { it.creatorId }) { req ->
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("${req.displayName} (@${req.username})", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "${req.followersCount} subs • ${req.watchTimeHours}h watch • ${formatCount(req.shortsEngagementViews)} Shorts views",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        "Payout: ${req.payoutMethod} • Status: ${req.status.uppercase()}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = FlareOrange
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(onClick = { viewModel.adminUpdateMonetizationStatus(req.creatorId, "approved") }) {
+                                            Icon(Icons.Default.CheckCircle, null)
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Approve")
+                                        }
+                                        OutlinedButton(onClick = { viewModel.adminUpdateMonetizationStatus(req.creatorId, "rejected") }) {
+                                            Text("Reject")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                4 -> {
                     if (reports.isEmpty()) {
                         item {
                             EmptyStudioCard(title = "No Reports", subtitle = "Reported videos, comments, and users appear here.")
@@ -578,7 +634,7 @@ fun AdminDashboardScreen(
                     }
                 }
 
-                4 -> {
+                5 -> {
                     item {
                         var bannerInput by remember(platformSettings) {
                             mutableStateOf(platformSettings?.featuredBannerText.orEmpty())

@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,14 +74,17 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.data.media.CloudinaryUploader
 import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.ReportContentDialog
+import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.isLocalFileMissing
@@ -95,7 +102,9 @@ fun ShortsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val publicVideosState by viewModel.publicVideosState.collectAsStateWithLifecycle()
     val shortsFeed by viewModel.shortsFeed.collectAsStateWithLifecycle()
+    val focusedShortId by viewModel.focusedShortId.collectAsStateWithLifecycle()
     val creators by viewModel.allCreators.collectAsStateWithLifecycle()
     val userState by viewModel.userAccountState.collectAsStateWithLifecycle()
     val likedIds by viewModel.likedVideoIds.collectAsStateWithLifecycle()
@@ -110,26 +119,73 @@ fun ShortsScreen(
     var commentDraft by remember { mutableStateOf("") }
 
     if (shortsFeed.isEmpty()) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            EmptyStudioCard(
-                title = "No Shorts Published Yet",
-                subtitle = "Swipe-ready 9:16 vertical videos appear here as soon as you or other creators upload Shorts.",
-                actionLabel = "Create a Short",
-                onActionClick = onOpenUpload
-            )
+        if (publicVideosState is UiState.Loading) {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    repeat(4) {
+                        ShimmerBox(modifier = Modifier.size(38.dp), shape = CircleShape, darkSurface = true)
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(end = 72.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ShimmerBox(modifier = Modifier.size(36.dp), shape = CircleShape, darkSurface = true)
+                        Spacer(Modifier.width(10.dp))
+                        ShimmerBox(modifier = Modifier.width(120.dp).height(16.dp), darkSurface = true)
+                    }
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.8f).height(16.dp), darkSurface = true)
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.55f).height(14.dp), darkSurface = true)
+                }
+            }
+        } else {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                EmptyStudioCard(
+                    title = "No Shorts Published Yet",
+                    subtitle = "Swipe-ready 9:16 vertical videos appear here as soon as you or other creators upload Shorts.",
+                    actionLabel = "Create a Short",
+                    onActionClick = onOpenUpload
+                )
+            }
         }
         return
     }
 
     val pagerState = rememberPagerState(pageCount = { shortsFeed.size })
 
+    LaunchedEffect(focusedShortId, shortsFeed) {
+        val targetId = focusedShortId
+        if (!targetId.isNullOrBlank() && shortsFeed.isNotEmpty()) {
+            val idx = shortsFeed.indexOfFirst { it.id == targetId }
+            if (idx >= 0) {
+                pagerState.scrollToPage(idx)
+            }
+            viewModel.clearFocusedShort()
+        }
+    }
+
     VerticalPager(
         state = pagerState,
+        key = { page -> shortsFeed[page].id },
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
@@ -142,6 +198,14 @@ fun ShortsScreen(
         val followRecord = followMap[shortVideo.creatorId]
         val isFollowing = followRecord != null
         val notifyOnUpload = followRecord?.notifyOnUpload ?: true
+
+        val resolvedCreator = creator ?: CreatorProfile(
+            creatorId = shortVideo.creatorId,
+            displayName = shortVideo.creatorName.ifBlank { "Creator" },
+            username = shortVideo.creatorUsername.ifBlank { "creator" },
+            avatarUrl = shortVideo.creatorAvatarUrl,
+            verified = shortVideo.creatorVerified
+        )
 
         ShortPlayerPage(
             video = shortVideo,
@@ -160,8 +224,8 @@ fun ShortsScreen(
             },
             onShareClick = { shareVideoIntent(context, shortVideo) },
             onSaveClick = { viewModel.toggleSavedVideo(shortVideo) },
-            onFollowClick = { if (creator != null) viewModel.toggleFollow(creator) },
-            onToggleBell = { if (creator != null) viewModel.toggleSubscriptionBell(creator, notifyOnUpload) },
+            onFollowClick = { viewModel.toggleFollow(resolvedCreator) },
+            onToggleBell = { viewModel.toggleSubscriptionBell(resolvedCreator, notifyOnUpload) },
             onCreatorClick = { onOpenCreatorProfile(shortVideo.creatorId) },
             onReportClick = { reportVideoTarget = shortVideo }
         )
@@ -257,15 +321,34 @@ private fun ShortPlayerPage(
     val context = LocalContext.current
     var pausedByUser by remember(video.id) { mutableStateOf(false) }
     val localVideoMissing = remember(video.videoUri) { isLocalFileMissing(video.videoUri) }
-    var playerErrorMessage by remember(video.id, video.videoUri) { mutableStateOf<String?>(null) }
+    var activePlaybackUri by remember { mutableStateOf(video.videoUri) }
+    var triedTranscodeFallback by remember { mutableStateOf(false) }
+    var isPreparingFallback by remember { mutableStateOf(false) }
+    var playerErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    val currentIsActive by rememberUpdatedState(isActive)
+    val currentPausedByUser by rememberUpdatedState(pausedByUser)
 
     val exoPlayer = remember(video.id) {
-        ExoPlayer.Builder(context).build().apply {
+        val renderersFactory = DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+        }
+        ExoPlayer.Builder(context, renderersFactory).build().apply {
             repeatMode = Player.REPEAT_MODE_ONE
-            if (video.videoUri.isNotBlank() && !isLocalFileMissing(video.videoUri)) {
-                setMediaItem(MediaItem.fromUri(video.videoUri))
-                prepare()
-            }
+        }
+    }
+
+    LaunchedEffect(video.id, video.videoUri, localVideoMissing) {
+        activePlaybackUri = video.videoUri
+        triedTranscodeFallback = false
+        isPreparingFallback = false
+        playerErrorMessage = null
+        if (video.videoUri.isNotBlank() && !localVideoMissing) {
+            exoPlayer.setMediaItem(MediaItem.fromUri(video.videoUri))
+            exoPlayer.prepare()
+        } else {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
         }
     }
 
@@ -280,8 +363,31 @@ private fun ShortPlayerPage(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    isPreparingFallback = false
+                    playerErrorMessage = null
+                }
+            }
+
             override fun onPlayerError(error: PlaybackException) {
-                playerErrorMessage = error.localizedMessage ?: "Failed to play Short."
+                val fallbackUrl = if (!triedTranscodeFallback) {
+                    CloudinaryUploader.buildCompatibleVideoUrl(activePlaybackUri)
+                } else {
+                    null
+                }
+                if (fallbackUrl != null) {
+                    triedTranscodeFallback = true
+                    isPreparingFallback = true
+                    playerErrorMessage = null
+                    activePlaybackUri = fallbackUrl
+                    exoPlayer.setMediaItem(MediaItem.fromUri(fallbackUrl))
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = currentIsActive && !currentPausedByUser
+                } else {
+                    isPreparingFallback = false
+                    playerErrorMessage = friendlyPlaybackErrorMessage(error)
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -311,28 +417,46 @@ private fun ShortPlayerPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (localVideoMissing || playerErrorMessage != null) {
+        if (isPreparingFallback) {
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(color = FlareOrange, modifier = Modifier.size(34.dp))
+                Text(
+                    text = "Optimizing video for your phone...",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else if (localVideoMissing || playerErrorMessage != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(Icons.Default.Warning, "Unavailable", tint = FlareOrange, modifier = Modifier.size(36.dp))
                 Text(
                     text = if (localVideoMissing) {
-                        "Short file unavailable on this phone"
+                        "Short unavailable on this phone"
                     } else {
                         playerErrorMessage.orEmpty()
                     },
                     color = Color.White,
-                    style = MaterialTheme.typography.titleSmall
+                    style = MaterialTheme.typography.titleSmall,
+                    textAlign = TextAlign.Center
                 )
                 if (!localVideoMissing) {
                     OutlinedButton(onClick = {
                         playerErrorMessage = null
-                        exoPlayer.setMediaItem(MediaItem.fromUri(video.videoUri))
+                        val retryUri = activePlaybackUri.ifBlank { video.videoUri }
+                        exoPlayer.setMediaItem(MediaItem.fromUri(retryUri))
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     }) {
@@ -411,16 +535,16 @@ private fun ShortPlayerPage(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, end = 78.dp, bottom = 28.dp)
+                .padding(start = 16.dp, end = 72.dp, bottom = 28.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CreatorAvatar(
-                    avatarUrl = video.creatorAvatarUrl,
+                    avatarUrl = creator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl,
                     name = video.creatorName,
-                    size = 38.dp,
+                    size = 34.dp,
                     modifier = Modifier.clickable(onClick = onCreatorClick)
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     text = "@${video.creatorUsername}",
                     color = Color.White,
@@ -443,15 +567,17 @@ private fun ShortPlayerPage(
                     )
                 }
                 if (!isSelf) {
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     if (isFollowing) {
                         OutlinedButton(
                             onClick = onFollowClick,
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp)
                         ) {
                             Text("Subscribed", color = Color.White, style = MaterialTheme.typography.labelSmall)
                         }
-                        IconButton(onClick = onToggleBell, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = onToggleBell, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
                                 contentDescription = if (notifyOnUpload) "Upload notifications ON" else "Upload notifications muted",
@@ -463,7 +589,9 @@ private fun ShortPlayerPage(
                         Button(
                             onClick = onFollowClick,
                             colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp)
                         ) {
                             Text("Subscribe", color = Color.White, style = MaterialTheme.typography.labelSmall)
                         }
@@ -506,5 +634,21 @@ private fun ShortPlayerPage(
                 }
             }
         }
+    }
+}
+
+private fun friendlyPlaybackErrorMessage(error: PlaybackException): String {
+    val msg = error.message.orEmpty()
+    return when {
+        msg.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) ||
+            msg.contains("MediaCodec", ignoreCase = true) ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
+            "This video's format isn't supported on this phone."
+        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+            "Network error while loading video. Check your connection and tap Retry."
+        else -> "Could not play this video right now. Tap Retry."
     }
 }

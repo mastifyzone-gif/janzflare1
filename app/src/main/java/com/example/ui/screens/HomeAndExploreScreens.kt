@@ -34,7 +34,6 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -77,6 +76,8 @@ import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.JanzBrandHeader
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
+import com.example.ui.components.ShortsStripSkeleton
+import com.example.ui.components.VideoCardSkeleton
 import com.example.ui.components.VideoThumbnailCard
 import com.example.ui.components.formatCount
 import com.example.ui.components.isMediaUriAvailable
@@ -241,7 +242,9 @@ fun HomeScreen(
             }
 
             // Shorts Spotlight Strip
-            if (shortsFeed.isNotEmpty()) {
+            if (publicVideosState is UiState.Loading && shortsFeed.isEmpty()) {
+                item { ShortsStripSkeleton() }
+            } else if (shortsFeed.isNotEmpty()) {
                 item {
                     Column {
                         Row(
@@ -252,7 +255,10 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Shorts", style = MaterialTheme.typography.titleLarge)
-                            TextButton(onClick = onOpenShorts) {
+                            TextButton(onClick = {
+                                viewModel.clearFocusedShort()
+                                onOpenShorts()
+                            }) {
                                 Text("Watch All")
                             }
                         }
@@ -263,7 +269,10 @@ fun HomeScreen(
                             items(shortsFeed.take(10), key = { it.id }) { shortVideo ->
                                 ShortPreviewCard(
                                     video = shortVideo,
-                                    onClick = onOpenShorts
+                                    onClick = {
+                                        viewModel.focusShort(shortVideo.id)
+                                        onOpenShorts()
+                                    }
                                 )
                             }
                         }
@@ -274,15 +283,8 @@ fun HomeScreen(
             // Video Feed State
             when (publicVideosState) {
                 is UiState.Loading -> {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator()
-                        }
+                    items(3) {
+                        VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
                     }
                 }
                 is UiState.Error -> {
@@ -754,7 +756,11 @@ fun ExploreSearchScreen(
             }
 
             if (searchScope != "Creators") {
-                if (filteredVideos.isEmpty()) {
+                if (publicVideosState is UiState.Loading) {
+                    items(3) {
+                        VideoCardSkeleton()
+                    }
+                } else if (filteredVideos.isEmpty()) {
                     item {
                         EmptyStudioCard(
                             title = "No matching videos found",
@@ -770,7 +776,12 @@ fun ExploreSearchScreen(
                             isSaved = user?.savedVideoIds?.contains(video.id) == true,
                             onPlayClick = {
                                 if (query.isNotBlank()) viewModel.addRecentSearch(query)
-                                if (video.shortForm) onOpenShorts() else onOpenVideo(video.id)
+                                if (video.shortForm) {
+                                    viewModel.focusShort(video.id)
+                                    onOpenShorts()
+                                } else {
+                                    onOpenVideo(video.id)
+                                }
                             },
                             onCreatorClick = { onOpenCreatorProfile(video.creatorId) },
                             onLikeClick = { viewModel.toggleLike(video) },

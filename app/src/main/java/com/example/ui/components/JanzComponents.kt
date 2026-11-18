@@ -73,8 +73,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -1071,4 +1073,130 @@ fun formatRelativeDate(ts: Timestamp?): String {
 fun formatJoinDate(ts: Timestamp?): String {
     val millis = ts?.toDate()?.time ?: System.currentTimeMillis()
     return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+}
+
+@Composable
+fun ShimmerBox(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(10.dp),
+    darkSurface: Boolean = false
+) {
+    val transition = rememberInfiniteTransition(label = "janz_shimmer")
+    val translate by transition.animateFloat(
+        initialValue = -350f,
+        targetValue = 900f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1250, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_x"
+    )
+    val base = if (darkSurface) Color(0xFF1F2230) else MaterialTheme.colorScheme.surfaceVariant
+    val highlight = if (darkSurface) Color(0xFF33384C) else MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    val brush = Brush.linearGradient(
+        colors = listOf(base, highlight, base),
+        start = Offset(translate, 0f),
+        end = Offset(translate + 320f, 180f)
+    )
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(brush)
+    )
+}
+
+@Composable
+fun ShortsStripSkeleton(modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ShimmerBox(modifier = Modifier.width(86.dp).height(20.dp))
+            ShimmerBox(modifier = Modifier.width(64.dp).height(16.dp))
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            userScrollEnabled = false
+        ) {
+            items(4) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .width(126.dp)
+                        .height(210.dp),
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoCardSkeleton(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column {
+            ShimmerBox(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f),
+                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ShimmerBox(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.88f).height(16.dp))
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.55f).height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileHeaderSkeleton(modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        ShimmerBox(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            shape = RoundedCornerShape(0.dp)
+        )
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                ShimmerBox(modifier = Modifier.size(72.dp), shape = CircleShape)
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.65f).height(20.dp))
+                    ShimmerBox(modifier = Modifier.fillMaxWidth(0.48f).height(14.dp))
+                }
+            }
+            ShimmerBox(modifier = Modifier.fillMaxWidth(0.85f).height(14.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                repeat(4) {
+                    ShimmerBox(modifier = Modifier.width(64.dp).height(34.dp))
+                }
+            }
+            ShimmerBox(modifier = Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(20.dp))
+        }
+    }
 }

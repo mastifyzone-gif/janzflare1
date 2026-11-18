@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -105,15 +106,19 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.data.media.CloudinaryUploader
 import com.example.data.model.Comment
+import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.VerifiedAffiliationBadges
+import com.example.ui.components.VideoCardSkeleton
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
 import com.example.ui.components.formatRelativeDate
@@ -176,7 +181,10 @@ fun VideoPlayerScreen(
     var qualityLabel by remember { mutableStateOf("Auto") }
     var speedMenuOpen by remember { mutableStateOf(false) }
     var qualityMenuOpen by remember { mutableStateOf(false) }
-    var playerErrorMessage by remember(videoId, video?.videoUri) { mutableStateOf<String?>(null) }
+    var activePlaybackUri by remember { mutableStateOf("") }
+    var triedTranscodeFallback by remember { mutableStateOf(false) }
+    var isPreparingFallback by remember { mutableStateOf(false) }
+    var playerErrorMessage by remember { mutableStateOf<String?>(null) }
     val localVideoMissing = remember(video?.videoUri) {
         video != null && isLocalFileMissing(video.videoUri)
     }
@@ -224,16 +232,25 @@ fun VideoPlayerScreen(
     }
 
     val exoPlayer = remember(context) {
-        ExoPlayer.Builder(context).build()
+        val renderersFactory = DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+        }
+        ExoPlayer.Builder(context, renderersFactory).build()
     }
 
-    LaunchedEffect(video?.videoUri, localVideoMissing) {
+    LaunchedEffect(videoId, video?.videoUri, localVideoMissing) {
         val uri = video?.videoUri.orEmpty()
+        activePlaybackUri = uri
+        triedTranscodeFallback = false
+        isPreparingFallback = false
         playerErrorMessage = null
         if (uri.isNotBlank() && !localVideoMissing) {
             exoPlayer.setMediaItem(MediaItem.fromUri(uri))
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
+        } else {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
         }
     }
 
@@ -244,12 +261,38 @@ fun VideoPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                playerErrorMessage = error.localizedMessage
-                    ?: "Could not load video stream. Check your internet connection or video URL."
+                val fallbackUrl = if (!triedTranscodeFallback) {
+                    CloudinaryUploader.buildCompatibleVideoUrl(activePlaybackUri)
+                } else {
+                    null
+                }
+                if (fallbackUrl != null) {
+                    triedTranscodeFallback = true
+                    isPreparingFallback = true
+                    playerErrorMessage = null
+                    activePlaybackUri = fallbackUrl
+                    exoPlayer.setMediaItem(MediaItem.fromUri(fallbackUrl))
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                } else {
+                    isPreparingFallback = false
+                    val raw = error.message.orEmpty()
+                    playerErrorMessage = when {
+                        raw.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) ||
+                            raw.contains("MediaCodec", ignoreCase = true) ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ->
+                            "This video's format or resolution isn't supported on this device."
+                        else -> "Could not load video. Check your internet connection and tap Retry."
+                    }
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED && autoPlayNext && upNextVideos.isNotEmpty()) {
+                if (state == Player.STATE_READY) {
+                    isPreparingFallback = false
+                    playerErrorMessage = null
+                } else if (state == Player.STATE_ENDED && autoPlayNext && upNextVideos.isNotEmpty()) {
                     onSelectVideo(upNextVideos.first().id)
                 }
             }
@@ -293,11 +336,24 @@ fun VideoPlayerScreen(
     }
 
     if (video == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Video unavailable or removed", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = onBack) { Text("Go Back") }
+        if (publicVideosState is UiState.Loading || myVideosState is UiState.Loading) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                VideoCardSkeleton()
+                VideoCardSkeleton()
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Video unavailable or removed", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onBack) { Text("Go Back") }
+                }
             }
         }
         return
@@ -351,7 +407,29 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            if (localVideoMissing || playerErrorMessage != null) {
+            if (isPreparingFallback) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.72f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = FlareOrange,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Text(
+                            text = "Optimizing video for your phone...",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            } else if (localVideoMissing || playerErrorMessage != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -371,7 +449,7 @@ fun VideoPlayerScreen(
                         )
                         Text(
                             text = if (localVideoMissing) {
-                                "Video file not found on this phone"
+                                "Video unavailable on this phone"
                             } else {
                                 "Unable to play video"
                             },
@@ -380,12 +458,13 @@ fun VideoPlayerScreen(
                         )
                         Text(
                             text = if (localVideoMissing) {
-                                "Older local gallery uploads are erased if the app was uninstalled, and only play on the device that uploaded them."
+                                "This video was stored only on the uploader's device."
                             } else {
                                 playerErrorMessage.orEmpty()
                             },
                             color = Color.White.copy(alpha = 0.8f),
                             style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -393,7 +472,8 @@ fun VideoPlayerScreen(
                             if (!localVideoMissing) {
                                 OutlinedButton(onClick = {
                                     playerErrorMessage = null
-                                    exoPlayer.setMediaItem(MediaItem.fromUri(video.videoUri))
+                                    val retryUri = activePlaybackUri.ifBlank { video.videoUri }
+                                    exoPlayer.setMediaItem(MediaItem.fromUri(retryUri))
                                     exoPlayer.prepare()
                                     exoPlayer.playWhenReady = true
                                 }) {
@@ -774,17 +854,24 @@ fun VideoPlayerScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (video.creatorId != viewModel.currentUserId && creator != null) {
+                            val resolvedCreator = creator ?: CreatorProfile(
+                                creatorId = video.creatorId,
+                                displayName = video.creatorName.ifBlank { "Creator" },
+                                username = video.creatorUsername.ifBlank { "creator" },
+                                avatarUrl = video.creatorAvatarUrl,
+                                verified = video.creatorVerified
+                            )
+                            if (video.creatorId != viewModel.currentUserId) {
                                 if (isFollowing) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        OutlinedButton(onClick = { viewModel.toggleFollow(creator) }) {
+                                        OutlinedButton(onClick = { viewModel.toggleFollow(resolvedCreator) }) {
                                             Text("Subscribed")
                                         }
                                         IconButton(
-                                            onClick = { viewModel.toggleSubscriptionBell(creator, notifyOnUpload) }
+                                            onClick = { viewModel.toggleSubscriptionBell(resolvedCreator, notifyOnUpload) }
                                         ) {
                                             Icon(
                                                 imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
@@ -794,7 +881,7 @@ fun VideoPlayerScreen(
                                         }
                                     }
                                 } else {
-                                    Button(onClick = { viewModel.toggleFollow(creator) }) {
+                                    Button(onClick = { viewModel.toggleFollow(resolvedCreator) }) {
                                         Text("Subscribe")
                                     }
                                 }

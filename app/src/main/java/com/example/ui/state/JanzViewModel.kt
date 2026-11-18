@@ -1,5 +1,6 @@
 package com.example.ui.state
 
+import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -10,6 +11,7 @@ import com.example.data.model.CreatorProfile
 import com.example.data.model.FollowRecord
 import com.example.data.model.JanzCatalog
 import com.example.data.model.ModerationReport
+import com.example.data.model.MonetizationRequest
 import com.example.data.model.PlatformSettings
 import com.example.data.model.Playlist
 import com.example.data.model.UserAccount
@@ -17,6 +19,7 @@ import com.example.data.model.Video
 import com.example.data.model.WatchHistoryRecord
 import com.example.data.repository.JanzRepository
 import com.example.domain.RecommendationEngine
+import com.example.notifications.JanzNotificationHelper
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -62,6 +65,7 @@ data class UploadProgressState(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class JanzViewModel(
+    private val appContext: Context,
     private val repository: JanzRepository,
     val currentUserId: String,
     private val currentFirebaseUser: FirebaseUser
@@ -93,6 +97,11 @@ class JanzViewModel(
 
     private val _activeWatchVideoId = MutableStateFlow<String?>(null)
 
+    private val _targetCreatorId = MutableStateFlow<String?>(null)
+
+    private val _focusedShortId = MutableStateFlow<String?>(null)
+    val focusedShortId: StateFlow<String?> = _focusedShortId.asStateFlow()
+
     private fun <T> Flow<T>.toUiState(defaultError: String): StateFlow<UiState<T>> =
         this.map<T, UiState<T>> { UiState.Success(it) }
             .catch { error ->
@@ -115,6 +124,13 @@ class JanzViewModel(
 
     val ownCreatorState: StateFlow<UiState<CreatorProfile?>> =
         repository.observeCreatorProfile(currentUserId).toUiState("Failed to load creator profile")
+
+    val targetCreatorState: StateFlow<UiState<CreatorProfile?>> = _targetCreatorId
+        .flatMapLatest { cid ->
+            if (cid.isNullOrBlank()) flowOf(UiState.Success(null))
+            else repository.observeCreatorProfile(cid).toUiState("Failed to load creator profile")
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
 
     val allCreators: StateFlow<List<CreatorProfile>> =
         repository.observeAllCreators()
@@ -188,6 +204,19 @@ class JanzViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
+    val monetizationRequest: StateFlow<MonetizationRequest?> =
+        repository.observeMonetizationRequest(currentUserId)
+            .catch { if (it is CancellationException) throw it else emit(null) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
+
+    val adminMonetizationRequests: StateFlow<List<MonetizationRequest>> = _isAdmin
+        .flatMapLatest { admin ->
+            if (admin) repository.observeAllMonetizationRequestsForAdmin()
+                .catch { if (it is CancellationException) throw it else emit(emptyList()) }
+            else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
     val activeCategories: StateFlow<List<String>> = platformSettings
         .map { settings ->
             val disabled = settings?.disabledCategories?.toSet().orEmpty()
@@ -256,6 +285,22 @@ class JanzViewModel(
                 .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to initialize profile" }
             _isAdmin.value = repository.checkIsAdmin(currentFirebaseUser)
         }
+        viewModelScope.launch {
+            JanzNotificationHelper.ensureChannel(appContext)
+            combine(notifications, userAccountState) { notifs, uState ->
+                notifs to uState
+            }.collect { (notifs, uState) ->
+                if (uState !is UiState.Loading) {
+                    val userPrefs = (uState as? UiState.Success)?.data
+                    JanzNotificationHelper.processIncomingNotifications(
+                        context = appContext,
+                        userId = currentUserId,
+                        notifications = notifs,
+                        userPrefs = userPrefs
+                    )
+                }
+            }
+        }
     }
 
     fun selectHomeTab(tab: HomeFeedTab) { _selectedHomeTab.value = tab }
@@ -270,6 +315,9 @@ class JanzViewModel(
     }
     fun clearRecentSearches() { _recentSearches.value = emptyList() }
     fun setActiveWatchVideo(videoId: String?) { _activeWatchVideoId.value = videoId }
+    fun setTargetCreatorId(creatorId: String?) { _targetCreatorId.value = creatorId }
+    fun focusShort(videoId: String?) { _focusedShortId.value = videoId }
+    fun clearFocusedShort() { _focusedShortId.value = null }
     fun clearSnackbar() { _snackbarMessage.value = null }
     fun showMessage(msg: String) { _snackbarMessage.value = msg }
 
@@ -551,6 +599,34 @@ class JanzViewModel(
         viewModelScope.launch {
             repository.adminUpdatePlatformSettings(disabledCategories, bannerText, maintenanceNotice)
                 .onSuccess { _snackbarMessage.value = "Platform settings saved" }
+        }
+    }
+
+    fun submitMonetizationApplication(watchTimeHours: Long, shortsEngagementViews: Long, payoutMethod: String) {
+        val creator = (ownCreatorState.value as? UiState.Success)?.data ?: return
+        viewModelScope.launch {
+            repository.submitMonetizationApplication(
+                creator = creator,
+                watchTimeHours = watchTimeHours,
+                shortsEngagementViews = shortsEngagementViews,
+                payoutMethod = payoutMethod
+            ).onSuccess {
+                _snackbarMessage.value = "Monetization application submitted for review!"
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Could not submit monetization application"
+            }
+        }
+    }
+
+    fun adminUpdateMonetizationStatus(creatorId: String, status: String) {
+        viewModelScope.launch {
+            repository.adminUpdateMonetizationStatus(creatorId, status)
+                .onSuccess {
+                    _snackbarMessage.value = "Monetization status updated to ${status.replaceFirstChar { it.uppercase() }}"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to update monetization status"
+                }
         }
     }
 }

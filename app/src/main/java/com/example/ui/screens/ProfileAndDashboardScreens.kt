@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -32,9 +33,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -44,25 +47,31 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -85,13 +94,16 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.CreatorProfile
 import com.example.data.model.JanzCatalog
+import com.example.data.model.MonetizationRequest
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.JanzFlareMark
 import com.example.ui.components.PlaylistPickerDialog
+import com.example.ui.components.ProfileHeaderSkeleton
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.VerifiedAffiliationBadges
+import com.example.ui.components.VideoCardSkeleton
 import com.example.ui.components.VideoThumbnailCard
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
@@ -104,6 +116,7 @@ import com.example.ui.state.UiState
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.FlareAmber
 import com.example.ui.theme.FlareOrange
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,12 +130,18 @@ fun ProfileScreen(
     onOpenDashboard: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenUpload: () -> Unit,
+    onOpenMonetize: () -> Unit = onOpenDashboard,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val isOwnProfile = creatorId == viewModel.currentUserId
 
+    LaunchedEffect(creatorId, isOwnProfile) {
+        viewModel.setTargetCreatorId(if (isOwnProfile) null else creatorId)
+    }
+
     val ownCreatorState by viewModel.ownCreatorState.collectAsStateWithLifecycle()
+    val targetCreatorState by viewModel.targetCreatorState.collectAsStateWithLifecycle()
     val allCreators by viewModel.allCreators.collectAsStateWithLifecycle()
     val publicVideosState by viewModel.publicVideosState.collectAsStateWithLifecycle()
     val myVideosState by viewModel.myVideosState.collectAsStateWithLifecycle()
@@ -131,11 +150,6 @@ fun ProfileScreen(
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
-    val creator = if (isOwnProfile) {
-        (ownCreatorState as? UiState.Success)?.data
-    } else {
-        allCreators.firstOrNull { it.creatorId == creatorId }
-    }
     val user = (userState as? UiState.Success)?.data
     val creatorVideos = remember(isOwnProfile, creatorId, publicVideosState, myVideosState) {
         if (isOwnProfile) {
@@ -146,6 +160,35 @@ fun ProfileScreen(
                 .sortedByDescending { it.createdAt?.seconds ?: 0L }
         }
     }
+
+    val targetCreator = (targetCreatorState as? UiState.Success)?.data
+    val fallbackFromVideos = remember(creatorVideos, creatorId) {
+        creatorVideos.firstOrNull()?.let { v ->
+            CreatorProfile(
+                creatorId = creatorId,
+                displayName = v.creatorName.ifBlank { "Creator" },
+                username = v.creatorUsername.ifBlank { "creator" },
+                avatarUrl = v.creatorAvatarUrl,
+                verified = v.creatorVerified,
+                totalVideos = creatorVideos.size.toLong(),
+                totalViews = creatorVideos.sumOf { it.viewsCount }
+            )
+        }
+    }
+
+    val creator = if (isOwnProfile) {
+        (ownCreatorState as? UiState.Success)?.data
+    } else {
+        targetCreator
+            ?: allCreators.firstOrNull { it.creatorId == creatorId }
+            ?: fallbackFromVideos
+    }
+
+    val isLoadingCreator = creator == null && (
+        (isOwnProfile && ownCreatorState is UiState.Loading) ||
+            (!isOwnProfile && (targetCreatorState is UiState.Loading || publicVideosState is UiState.Loading))
+        )
+    val isLoadingVideos = if (isOwnProfile) myVideosState is UiState.Loading else publicVideosState is UiState.Loading
 
     val allPublic = (publicVideosState as? UiState.Success)?.data.orEmpty()
     val savedVideos = remember(user, allPublic) {
@@ -239,6 +282,15 @@ fun ProfileScreen(
         ) {
             // Cover Banner + Avatar + Header Info
             item {
+                if (isLoadingCreator) {
+                    ProfileHeaderSkeleton()
+                } else if (creator == null) {
+                    EmptyStudioCard(
+                        title = "Channel Unavailable",
+                        subtitle = "Could not load this creator's profile. Please check your connection and try again.",
+                        modifier = Modifier.padding(16.dp)
+                    )
+                } else {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     val coverUrl = creator?.coverUrl.orEmpty()
                     val coverAvailable = remember(coverUrl) { isMediaUriAvailable(coverUrl) }
@@ -364,28 +416,42 @@ fun ProfileScreen(
                         if (isOwnProfile) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedButton(
                                     onClick = { showEditDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("edit_profile_button")
                                 ) {
-                                    Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Edit Profile")
+                                    Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Edit", maxLines = 1)
                                 }
-                                Button(
+                                OutlinedButton(
                                     onClick = onOpenDashboard,
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(Icons.Default.Analytics, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Studio")
+                                    Icon(Icons.Default.Analytics, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Studio", maxLines = 1)
+                                }
+                                Button(
+                                    onClick = onOpenMonetize,
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("profile_earn_button")
+                                ) {
+                                    Icon(Icons.Default.MonetizationOn, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Earn", maxLines = 1)
                                 }
                             }
-                        } else if (creator != null) {
+                        } else {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -424,6 +490,7 @@ fun ProfileScreen(
                         }
                     }
                 }
+                }
             }
 
             // Tabs
@@ -447,7 +514,11 @@ fun ProfileScreen(
             when (currentTabName) {
                 "Videos" -> {
                     val standardVideos = creatorVideos.filter { !it.shortForm }
-                    if (standardVideos.isEmpty()) {
+                    if (isLoadingVideos && standardVideos.isEmpty()) {
+                        items(2) {
+                            VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    } else if (standardVideos.isEmpty()) {
                         item {
                             EmptyStudioCard(
                                 title = "No Standard Videos Yet",
@@ -485,7 +556,11 @@ fun ProfileScreen(
 
                 "Shorts" -> {
                     val shorts = creatorVideos.filter { it.shortForm || it.category == "Shorts" }
-                    if (shorts.isEmpty()) {
+                    if (isLoadingVideos && shorts.isEmpty()) {
+                        items(2) {
+                            VideoCardSkeleton(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    } else if (shorts.isEmpty()) {
                         item {
                             EmptyStudioCard(
                                 title = "No Shorts Yet",
@@ -501,7 +576,10 @@ fun ProfileScreen(
                                 video = video,
                                 isLiked = likedIds.contains(video.id),
                                 isSaved = user?.savedVideoIds?.contains(video.id) == true,
-                                onPlayClick = onOpenShorts,
+                                onPlayClick = {
+                                    viewModel.focusShort(video.id)
+                                    onOpenShorts()
+                                },
                                 onCreatorClick = {},
                                 onLikeClick = { viewModel.toggleLike(video) },
                                 onCommentClick = { onOpenVideo(video.id) },
@@ -855,10 +933,12 @@ fun CreatorDashboardScreen(
     viewModel: JanzViewModel,
     onBack: () -> Unit,
     onOpenUpload: () -> Unit,
-    onOpenVideo: (String) -> Unit
+    onOpenVideo: (String) -> Unit,
+    initialTab: Int = 0
 ) {
     val ownCreatorState by viewModel.ownCreatorState.collectAsStateWithLifecycle()
     val myVideosState by viewModel.myVideosState.collectAsStateWithLifecycle()
+    val monetizationRequest by viewModel.monetizationRequest.collectAsStateWithLifecycle()
 
     val creator = (ownCreatorState as? UiState.Success)?.data
     val videos = (myVideosState as? UiState.Success)?.data.orEmpty()
@@ -866,13 +946,20 @@ fun CreatorDashboardScreen(
     val totalViews = videos.sumOf { it.viewsCount }
     val totalLikes = videos.sumOf { it.likesCount }
     val totalComments = videos.sumOf { it.commentsCount }
-    val totalWatchSec = videos.sumOf { it.watchTimeTotalSec }
+    val totalWatchSec = maxOf(creator?.totalWatchTimeSec ?: 0L, videos.sumOf { it.watchTimeTotalSec })
+    val watchHoursExact = totalWatchSec / 3600.0
+    val watchHoursWhole = totalWatchSec / 3600L
+    val shortsEngagementViews = videos.filter { it.shortForm || it.category == "Shorts" }.sumOf { it.viewsCount }
+    val subscribersCount = creator?.followersCount ?: 0L
+
     val engagementRate = if (totalViews > 0L) {
-        String.format("%.1f%%", ((totalLikes + totalComments) * 100.0) / totalViews)
+        String.format(Locale.US, "%.1f%%", ((totalLikes + totalComments) * 100.0) / totalViews)
     } else "0.0%"
 
     val topVideos = remember(videos) { videos.sortedByDescending { it.viewsCount + it.likesCount * 2L } }
     var editingVideo by remember { mutableStateOf<Video?>(null) }
+    var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 1)) }
+    var showApplyDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -885,134 +972,198 @@ fun CreatorDashboardScreen(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.background
         ) {
-            // Real Analytics Grid
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Channel Analytics", style = MaterialTheme.typography.titleLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        MetricCard("Total Views", formatCount(totalViews), Modifier.weight(1f))
-                        MetricCard("Subscribers", formatCount(creator?.followersCount ?: 0L), Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        MetricCard("Videos", videos.size.toString(), Modifier.weight(1f))
-                        MetricCard("Watch Time", formatDuration(totalWatchSec), Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        MetricCard("Engagement Rate", engagementRate, Modifier.weight(1f))
-                        MetricCard("Total Likes", formatCount(totalLikes), Modifier.weight(1f))
-                    }
-                }
-            }
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { Text("Overview & Content") }
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = { Text("Monetization") }
+            )
+        }
 
-            // Monetization - Coming Soon (Zero fake earnings!)
-            item {
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.MonetizationOn, null, tint = FlareOrange)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Creator Monetization", style = MaterialTheme.typography.titleLarge)
-                            }
-                            Surface(
-                                color = ElectricViolet.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    "COMING SOON",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ElectricViolet,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            "Creator monetization unlocks once your channel meets eligibility requirements.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            "Upcoming Programs: Advertising Revenue • Creator Rewards • Brand Sponsorships • Premium Membership • Paid Content • Live Donations",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Manage Your Videos (${videos.size})", style = MaterialTheme.typography.titleLarge)
-                    Button(onClick = onOpenUpload) { Text("Upload") }
-                }
-            }
-
-            if (topVideos.isEmpty()) {
+        if (selectedTab == 0) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 item {
-                    EmptyStudioCard(
-                        title = "No Videos Uploaded Yet",
-                        subtitle = "Upload your first video to start seeing real views, watch time, and engagement.",
-                        actionLabel = "Upload Video",
-                        onActionClick = onOpenUpload
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Channel Analytics", style = MaterialTheme.typography.titleLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            MetricCard("Total Views", formatCount(totalViews), Modifier.weight(1f))
+                            MetricCard("Subscribers", formatCount(subscribersCount), Modifier.weight(1f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            MetricCard("Videos", videos.size.toString(), Modifier.weight(1f))
+                            MetricCard("Watch Time", formatDuration(totalWatchSec), Modifier.weight(1f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            MetricCard("Engagement Rate", engagementRate, Modifier.weight(1f))
+                            MetricCard("Shorts Views", formatCount(shortsEngagementViews), Modifier.weight(1f))
+                        }
+                    }
                 }
-            } else {
-                items(topVideos, key = { it.id }) { video ->
+
+                // Quick Jump to Partner Monetization Program
+                item {
                     Card(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOpenVideo(video.id) }
+                            .clickable { selectedTab = 1 }
                     ) {
                         Row(
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(FlareOrange.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.MonetizationOn, null, tint = FlareOrange)
+                            }
+                            Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
+                                Text("Earn with JanzFlare Partner", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    video.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    "${video.visibility.uppercase()} • ${video.category} • ${formatCount(video.viewsCount)} views • ${formatCount(video.likesCount)} likes",
+                                    "Track 500 Subscribers, 1,000 Watch Hours, or 100K Shorts Views & Apply",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = { editingVideo = video }) {
-                                Icon(Icons.Default.Edit, "Edit video")
+                            TextButton(onClick = { selectedTab = 1 }) {
+                                Text("Open")
                             }
-                            IconButton(onClick = { viewModel.deleteOwnVideo(video.id) }) {
-                                Icon(Icons.Default.Delete, "Delete video", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Manage Your Videos (${videos.size})", style = MaterialTheme.typography.titleLarge)
+                        Button(onClick = onOpenUpload) { Text("Upload") }
+                    }
+                }
+
+                if (topVideos.isEmpty()) {
+                    item {
+                        EmptyStudioCard(
+                            title = "No Videos Uploaded Yet",
+                            subtitle = "Upload your first video to start seeing real views, watch time, and engagement.",
+                            actionLabel = "Upload Video",
+                            onActionClick = onOpenUpload
+                        )
+                    }
+                } else {
+                    items(topVideos, key = { it.id }) { video ->
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenVideo(video.id) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        video.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "${video.visibility.uppercase()} • ${video.category} • ${formatCount(video.viewsCount)} views • ${formatCount(video.likesCount)} likes",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { editingVideo = video }) {
+                                    Icon(Icons.Default.Edit, "Edit video")
+                                }
+                                IconButton(onClick = { viewModel.deleteOwnVideo(video.id) }) {
+                                    Icon(Icons.Default.Delete, "Delete video", tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
                 }
             }
+        } else {
+            MonetizationSectionContent(
+                subscribersCount = subscribersCount,
+                totalWatchSec = totalWatchSec,
+                watchHoursExact = watchHoursExact,
+                shortsEngagementViews = shortsEngagementViews,
+                monetizationRequest = monetizationRequest,
+                onApplyClick = { showApplyDialog = true }
+            )
         }
+    }
+
+    if (showApplyDialog) {
+        var payoutMethod by remember { mutableStateOf("UPI") }
+        AlertDialog(
+            onDismissRequest = { showApplyDialog = false },
+            title = { Text("Apply for JanzFlare Monetization") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Your channel meets the Partner Program criteria. Choose your preferred payout method for review:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    listOf("UPI", "Bank Transfer").forEach { method ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { payoutMethod = method }
+                        ) {
+                            RadioButton(
+                                selected = payoutMethod == method,
+                                onClick = { payoutMethod = method }
+                            )
+                            Text(method, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.submitMonetizationApplication(
+                            watchTimeHours = watchHoursWhole,
+                            shortsEngagementViews = shortsEngagementViews,
+                            payoutMethod = payoutMethod
+                        )
+                        showApplyDialog = false
+                    }
+                ) {
+                    Text("Submit Application")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApplyDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     editingVideo?.let { target ->
@@ -1050,6 +1201,269 @@ fun CreatorDashboardScreen(
                 TextButton(onClick = { editingVideo = null }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun MonetizationSectionContent(
+    subscribersCount: Long,
+    totalWatchSec: Long,
+    watchHoursExact: Double,
+    shortsEngagementViews: Long,
+    monetizationRequest: MonetizationRequest?,
+    onApplyClick: () -> Unit
+) {
+    val subsMet = subscribersCount >= 500L
+    val watchMet = watchHoursExact >= 1000.0
+    val shortsMet = shortsEngagementViews >= 100_000L
+    val isEligible = subsMet && (watchMet || shortsMet)
+
+    val subsProgress = (subscribersCount / 500f).coerceIn(0f, 1f)
+    val watchProgress = (watchHoursExact / 1000.0).toFloat().coerceIn(0f, 1f)
+    val shortsProgress = (shortsEngagementViews / 100_000f).coerceIn(0f, 1f)
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Partner Hero Card
+        item {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(listOf(FlareAmber.copy(alpha = 0.7f), FlareOrange, ElectricViolet))
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        JanzFlareMark(size = 32.dp, animated = false)
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("JanzFlare Partner Program", style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                "Earn from ads, Shorts rewards & fan support",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    val statusLabel = when (monetizationRequest?.status) {
+                        "approved" -> "PARTNER APPROVED"
+                        "pending" -> "UNDER REVIEW"
+                        "rejected" -> "NEEDS ATTENTION"
+                        else -> if (isEligible) "ELIGIBLE TO APPLY" else "IN PROGRESS"
+                    }
+                    val statusColor = when (monetizationRequest?.status) {
+                        "approved" -> Color(0xFF22C55E)
+                        "pending" -> FlareAmber
+                        "rejected" -> MaterialTheme.colorScheme.error
+                        else -> if (isEligible) Color(0xFF22C55E) else FlareOrange
+                    }
+                    Surface(
+                        color = statusColor.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Eligibility Criteria (YouTube-style Progress Bars)
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Eligibility Requirements", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Reach 500 Subscribers plus either 1,000 Watch Time Hours or 100K Shorts Engagement Views to unlock Apply.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    CriteriaProgressBlock(
+                        title = "500 Subscribers",
+                        subtitle = "Required",
+                        currentText = "${formatCount(subscribersCount)} / 500",
+                        progress = subsProgress,
+                        met = subsMet
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Text(
+                        "Complete ONE of the following:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = FlareOrange
+                    )
+
+                    CriteriaProgressBlock(
+                        title = "1,000 Watch Time Hours",
+                        subtitle = "Public standard videos",
+                        currentText = "${formatWatchHours(totalWatchSec)} / 1,000 hrs",
+                        progress = watchProgress,
+                        met = watchMet
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Text("OR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    }
+
+                    CriteriaProgressBlock(
+                        title = "100K Shorts Engagement Views",
+                        subtitle = "Valid public Shorts views",
+                        currentText = "${formatCount(shortsEngagementViews)} / 100K",
+                        progress = shortsProgress,
+                        met = shortsMet
+                    )
+                }
+            }
+        }
+
+        // Apply Action Card (Always visible below criteria)
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Monetization Application", style = MaterialTheme.typography.titleMedium)
+
+                    when (monetizationRequest?.status) {
+                        "pending" -> {
+                            Text(
+                                "Your application (Payout: ${monetizationRequest.payoutMethod}) has been submitted and is currently under review by the JanzFlare team.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = FlareAmber
+                            )
+                        }
+                        "approved" -> {
+                            Text(
+                                "Congratulations! Your channel is an approved JanzFlare Partner (Payout: ${monetizationRequest.payoutMethod}).",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF22C55E)
+                            )
+                        }
+                        else -> {
+                            if (monetizationRequest?.status == "rejected") {
+                                Text(
+                                    "Your previous application was declined. Once eligible, you can re-apply below.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Button(
+                                onClick = onApplyClick,
+                                enabled = isEligible,
+                                colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("monetize_apply_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (isEligible) Icons.Default.CheckCircle else Icons.Default.Lock,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = if (isEligible) "Apply for Monetization" else "Apply (Locked Until Eligible)",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                            }
+                            if (!isEligible) {
+                                Text(
+                                    "Complete 500 Subscribers + (1,000 Watch Hours or 100K Shorts Engagement Views) to activate the Apply button.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CriteriaProgressBlock(
+    title: String,
+    subtitle: String,
+    currentText: String,
+    progress: Float,
+    met: Boolean
+) {
+    val accent = if (met) Color(0xFF22C55E) else FlareOrange
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = currentText,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = accent
+                )
+                if (met) {
+                    Icon(Icons.Default.CheckCircle, "Requirement met", tint = accent, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            color = accent,
+            trackColor = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+        )
+    }
+}
+
+private fun formatWatchHours(totalWatchSec: Long): String {
+    val hours = totalWatchSec / 3600.0
+    return if (hours >= 10.0) {
+        String.format(Locale.US, "%.0f", hours)
+    } else {
+        String.format(Locale.US, "%.1f", hours)
     }
 }
 

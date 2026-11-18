@@ -14,6 +14,7 @@ import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
 import com.example.data.model.FollowRecord
 import com.example.data.model.ModerationReport
+import com.example.data.model.MonetizationRequest
 import com.example.data.model.PlatformSettings
 import com.example.data.model.Playlist
 import com.example.data.model.UserAccount
@@ -209,6 +210,23 @@ class JanzRepository(
             .map { it.toObject(PlatformSettings::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
     }
 
+    fun observeMonetizationRequest(creatorId: String): Flow<MonetizationRequest?> =
+        safeSnapshotFlow("monetizationRequests/$creatorId") {
+            db.collection("monetizationRequests").document(creatorId)
+                .snapshots()
+                .map { it.toObject(MonetizationRequest::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
+        }
+
+    fun observeAllMonetizationRequestsForAdmin(): Flow<List<MonetizationRequest>> =
+        safeSnapshotFlow("monetizationRequests(admin)") {
+            db.collection("monetizationRequests")
+                .snapshots()
+                .map { snap ->
+                    snap.toObjects(MonetizationRequest::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        .sortedByDescending { it.createdAt?.seconds ?: 0L }
+                }
+        }
+
     suspend fun checkIsAdmin(user: FirebaseUser): Boolean {
         if (user.isEmailVerified && user.email.equals("mdayubjanj@gmail.com", ignoreCase = true)) {
             return true
@@ -291,20 +309,35 @@ class JanzRepository(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 creatorRef.set(creatorPayload).await()
-            } else if (isFounder) {
-                val founderUpdates = mutableMapOf<String, Any>()
-                if (creatorSnap.getBoolean("founderAccount") != true) founderUpdates["founderAccount"] = true
-                if (creatorSnap.getBoolean("verified") != true) founderUpdates["verified"] = true
-                if (creatorSnap.getString("affiliatedBrand").orEmpty() != "JanzFlare") {
-                    founderUpdates["affiliatedBrand"] = "JanzFlare"
+            } else {
+                if (isFounder) {
+                    val founderUpdates = mutableMapOf<String, Any>()
+                    if (creatorSnap.getBoolean("founderAccount") != true) founderUpdates["founderAccount"] = true
+                    if (creatorSnap.getBoolean("verified") != true) founderUpdates["verified"] = true
+                    if (creatorSnap.getString("affiliatedBrand").orEmpty() != "JanzFlare") {
+                        founderUpdates["affiliatedBrand"] = "JanzFlare"
+                    }
+                    val existingBio = creatorSnap.getString("bio").orEmpty()
+                    if (existingBio.isBlank() || existingBio == "Creating on JanzFlare — Your Talent. Your Voice. Your World.") {
+                        founderUpdates["bio"] = FOUNDER_BIO
+                    }
+                    if (founderUpdates.isNotEmpty()) {
+                        founderUpdates["updatedAt"] = FieldValue.serverTimestamp()
+                        creatorRef.update(founderUpdates).await()
+                    }
                 }
-                val existingBio = creatorSnap.getString("bio").orEmpty()
-                if (existingBio.isBlank() || existingBio == "Creating on JanzFlare — Your Talent. Your Voice. Your World.") {
-                    founderUpdates["bio"] = FOUNDER_BIO
-                }
-                if (founderUpdates.isNotEmpty()) {
-                    founderUpdates["updatedAt"] = FieldValue.serverTimestamp()
-                    creatorRef.update(founderUpdates).await()
+                val existingAvatar = creatorSnap.getString("avatarUrl").orEmpty()
+                val isBrokenLocalAvatar = existingAvatar.isBlank() ||
+                    existingAvatar.startsWith("file:") ||
+                    existingAvatar.startsWith("content:")
+                if (isBrokenLocalAvatar && avatarUrl.startsWith("http")) {
+                    // Separate update matches Tier 2 owner rules cleanly
+                    creatorRef.update(
+                        mapOf(
+                            "avatarUrl" to avatarUrl,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
                 }
             }
             Result.success(Unit)
@@ -1234,6 +1267,58 @@ class JanzRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, "platformSettings/config")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun submitMonetizationApplication(
+        creator: CreatorProfile,
+        watchTimeHours: Long,
+        shortsEngagementViews: Long,
+        payoutMethod: String
+    ): Result<Unit> {
+        val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Not signed in"))
+        return try {
+            require(creator.followersCount >= 500L) {
+                "At least 500 subscribers are required to apply for monetization"
+            }
+            require(watchTimeHours >= 1000L || shortsEngagementViews >= 100_000L) {
+                "Reach 1,000 watch hours or 100K Shorts engagement views to apply"
+            }
+            val cleanMethod = if (payoutMethod == "Bank Transfer") "Bank Transfer" else "UPI"
+            db.collection("monetizationRequests").document(uid).set(
+                mapOf(
+                    "creatorId" to uid,
+                    "displayName" to creator.displayName.ifBlank { "Creator" }.take(60),
+                    "username" to creator.username.ifBlank { "creator" }.take(30),
+                    "followersCount" to creator.followersCount,
+                    "watchTimeHours" to watchTimeHours.coerceAtLeast(0L),
+                    "shortsEngagementViews" to shortsEngagementViews.coerceAtLeast(0L),
+                    "payoutMethod" to cleanMethod,
+                    "status" to "pending",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, "monetizationRequests/$uid")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminUpdateMonetizationStatus(creatorId: String, status: String): Result<Unit> {
+        return try {
+            db.collection("monetizationRequests").document(creatorId).update(
+                mapOf("status" to status, "updatedAt" to FieldValue.serverTimestamp())
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "monetizationRequests/$creatorId")
             Result.failure(e)
         }
     }

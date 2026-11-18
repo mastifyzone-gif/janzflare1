@@ -580,5 +580,45 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create, update, delete: if isValidId(adminUid) && isAdmin();
     }
+
+    // 7. Creator Monetization Requests (500 subs + 1000 watch hrs OR 100K Shorts engagement views)
+    match /monetizationRequests/{creatorId} {
+      allow get: if isValidId(creatorId) && (isOwner(creatorId) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isValidId(creatorId) &&
+                       isOwner(creatorId) &&
+                       incoming().creatorId == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().displayName is string && incoming().displayName.size() >= 1 && incoming().displayName.size() <= 60 &&
+                       incoming().username is string && incoming().username.size() >= 3 && incoming().username.size() <= 30 &&
+                       incoming().followersCount is int && incoming().followersCount >= 500 &&
+                       incoming().watchTimeHours is int && incoming().watchTimeHours >= 0 &&
+                       incoming().shortsEngagementViews is int && incoming().shortsEngagementViews >= 0 &&
+                       (incoming().watchTimeHours >= 1000 || incoming().shortsEngagementViews >= 100000) &&
+                       incoming().payoutMethod in ['UPI', 'Bank Transfer'] &&
+                       get(/databases/$(database)/documents/creators/$(creatorId)).data.followersCount >= 500 &&
+                       incoming().keys().hasAll([
+                         'creatorId', 'displayName', 'username', 'followersCount',
+                         'watchTimeHours', 'shortsEngagementViews', 'payoutMethod',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'creatorId', 'displayName', 'username', 'followersCount',
+                         'watchTimeHours', 'shortsEngagementViews', 'payoutMethod',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidTimestamp(incoming().updatedAt);
+
+      allow update: if isValidId(creatorId) && isAdmin() &&
+                       incoming().creatorId == existing().creatorId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().status in ['pending', 'approved', 'rejected'] &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isValidId(creatorId) && (isOwner(creatorId) || isAdmin());
+    }
   }
 }
