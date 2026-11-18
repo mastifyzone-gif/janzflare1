@@ -21,6 +21,12 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
+      - name: Restore cached debug keystore
+        uses: actions/cache@v4
+        with:
+          path: debug.keystore
+          key: janzflare-debug-keystore-v2
+
       - name: Prepare debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
@@ -43,7 +49,7 @@ jobs:
           FINGERPRINTS=$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA1:|SHA256:" || true)
           echo "$FINGERPRINTS"
           {
-            echo "### Firebase Login SHA-1 (Copy SHA1 and add in Firebase Console)"
+            echo "### Firebase Login SHA-1 (Sirf 1 baar Firebase Console me add karein)"
             echo '```'
             echo "$FINGERPRINTS"
             echo '```'
@@ -63,7 +69,7 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug -PappVersionCode=$((10 + ${{ github.run_number }})) -PappVersionName="1.${{ github.run_number }}" --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

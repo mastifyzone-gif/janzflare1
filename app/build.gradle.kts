@@ -12,15 +12,15 @@ android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
-  defaultConfig {
-    applicationId = "com.aistudio.janzflare.kxmpzq"
-    minSdk = 24
-    targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    defaultConfig {
+        applicationId = "com.aistudio.janzflare.kxmpzq"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 2
+        versionName = (project.findProperty("appVersionName") as? String) ?: "1.0.2"
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-  }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
   // and updating Android apps in AI Studio.
