@@ -791,7 +791,7 @@ private fun EditProfileDialog(
             ) {
                 if (isLocalFileMissing(creator.avatarUrl) && avatarUri == null) {
                     Text(
-                        text = "Your previous local profile photo was removed when the older APK was uninstalled. Tap Change Avatar to pick it again.",
+                        text = "Previous profile photo is unavailable. Tap Change Avatar to choose a new one.",
                         style = MaterialTheme.typography.bodySmall,
                         color = FlareOrange
                     )
@@ -893,7 +893,7 @@ fun CreatorDashboardScreen(
             // Real Analytics Grid
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Channel Analytics (Live Firestore Data)", style = MaterialTheme.typography.titleLarge)
+                    Text("Channel Analytics", style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         MetricCard("Total Views", formatCount(totalViews), Modifier.weight(1f))
                         MetricCard("Subscribers", formatCount(creator?.followersCount ?: 0L), Modifier.weight(1f))
@@ -943,7 +943,7 @@ fun CreatorDashboardScreen(
                             }
                         }
                         Text(
-                            "Monetization activates once payment & eligibility verification launches. No estimated or placeholder earnings are shown.",
+                            "Creator monetization unlocks once your channel meets eligibility requirements.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

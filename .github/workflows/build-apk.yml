@@ -69,6 +69,9 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build Debug APK
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_UPLOAD_PRESET: ${{ secrets.CLOUDINARY_UPLOAD_PRESET }}
         run: gradle assembleDebug -PappVersionCode=$((10 + ${{ github.run_number }})) -PappVersionName="1.${{ github.run_number }}" --no-daemon
 
       - name: Upload APK Artifact

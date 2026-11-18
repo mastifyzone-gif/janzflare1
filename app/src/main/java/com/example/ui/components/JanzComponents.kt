@@ -533,7 +533,7 @@ fun VideoThumbnailCard(
                             .padding(10.dp)
                     ) {
                         Text(
-                            text = "Local file unavailable",
+                            text = "Video unavailable",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFFFFB4AB),
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)

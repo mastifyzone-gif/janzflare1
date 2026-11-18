@@ -19,6 +19,15 @@ android {
         versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 2
         versionName = (project.findProperty("appVersionName") as? String) ?: "1.0.2"
 
+        val cloudName = (project.findProperty("cloudinaryCloudName") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("CLOUDINARY_CLOUD_NAME")?.takeIf { it.isNotBlank() }
+            ?: "pyfiml5f"
+        val cloudPreset = (project.findProperty("cloudinaryUploadPreset") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("CLOUDINARY_UPLOAD_PRESET")?.takeIf { it.isNotBlank() }
+            ?: "janz_upload"
+        buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"${cloudName.trim().replace("\"", "")}\"")
+        buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", "\"${cloudPreset.trim().replace("\"", "")}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -119,7 +128,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.logging.interceptor)
   // implementation(libs.moshi.kotlin)
-  // implementation(libs.okhttp)
+  implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   // implementation(libs.retrofit)
   implementation(libs.media3.exoplayer)

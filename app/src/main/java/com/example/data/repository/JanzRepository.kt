@@ -8,6 +8,7 @@ import android.util.Log
 import com.example.R
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.media.CloudinaryUploader
 import com.example.data.model.AppNotification
 import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
@@ -332,8 +333,21 @@ class JanzRepository(
             require(cleanDisplay.isNotEmpty()) { "Display name cannot be empty" }
             require(cleanUsername.length >= 3) { "Username must be at least 3 characters" }
 
-            val localAvatar = if (avatarUri != null) copyUriToInternal(avatarUri, "avatars", "jpg") else null
-            val localCover = if (coverUri != null) copyUriToInternal(coverUri, "covers", "jpg") else null
+            val useCloud = CloudinaryUploader.isConfigured()
+            val uploadedAvatar = if (avatarUri != null) {
+                if (useCloud) {
+                    CloudinaryUploader.uploadImageUri(appContext, avatarUri, "janzflare/avatars", maxDimPx = 720)
+                } else {
+                    copyUriToInternal(avatarUri, "avatars", "jpg")
+                }
+            } else null
+            val uploadedCover = if (coverUri != null) {
+                if (useCloud) {
+                    CloudinaryUploader.uploadImageUri(appContext, coverUri, "janzflare/covers", maxDimPx = 1440)
+                } else {
+                    copyUriToInternal(coverUri, "covers", "jpg")
+                }
+            } else null
 
             val userUpdates = mapOf(
                 "displayName" to cleanDisplay,
@@ -351,8 +365,8 @@ class JanzRepository(
                 "socialLink" to socialLink.trim().take(200),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            if (!localAvatar.isNullOrBlank()) creatorUpdates["avatarUrl"] = localAvatar
-            if (!localCover.isNullOrBlank()) creatorUpdates["coverUrl"] = localCover
+            if (!uploadedAvatar.isNullOrBlank()) creatorUpdates["avatarUrl"] = uploadedAvatar.take(500)
+            if (!uploadedCover.isNullOrBlank()) creatorUpdates["coverUrl"] = uploadedCover.take(500)
 
             db.collection("creators").document(uid).update(creatorUpdates).await()
             Result.success(Unit)
@@ -479,22 +493,52 @@ class JanzRepository(
             val cleanTitle = title.trim().take(120)
             require(cleanTitle.length >= 2) { "Video title must be at least 2 characters" }
 
-            onProgress(0.15f, "Preparing video file...")
-            val finalVideoUri = when {
-                pickedVideoUri != null -> copyUriToInternal(pickedVideoUri, "videos", "mp4")
-                remoteVideoUrl.trim().startsWith("http") -> remoteVideoUrl.trim().take(1000)
+            val useCloud = CloudinaryUploader.isConfigured()
+
+            onProgress(0.08f, "Extracting video details & thumbnail...")
+            val metaSource = when {
+                pickedVideoUri != null -> pickedVideoUri.toString()
+                remoteVideoUrl.trim().startsWith("http") -> remoteVideoUrl.trim()
                 else -> throw IllegalArgumentException("Please select a video from your gallery or provide a valid video URL")
             }
+            val meta = extractVideoMetadata(metaSource)
 
-            onProgress(0.45f, "Processing video metadata & thumbnail...")
-            val meta = extractVideoMetadata(finalVideoUri)
+            val finalVideoUri = when {
+                pickedVideoUri != null && useCloud -> {
+                    onProgress(0.15f, "Uploading video to cloud...")
+                    CloudinaryUploader.uploadVideoUri(appContext, pickedVideoUri, "janzflare/videos") { fraction ->
+                        val pct = (fraction * 100f).toInt().coerceIn(0, 100)
+                        onProgress(0.15f + fraction * 0.55f, "Uploading video to cloud ($pct%)...")
+                    }.take(1000)
+                }
+                pickedVideoUri != null -> {
+                    onProgress(0.30f, "Saving video locally...")
+                    copyUriToInternal(pickedVideoUri, "videos", "mp4")
+                }
+                else -> remoteVideoUrl.trim().take(1000)
+            }
+
+            onProgress(0.75f, if (useCloud) "Uploading thumbnail to cloud..." else "Saving thumbnail...")
             val finalThumbUri = when {
+                pickedThumbUri != null && useCloud -> {
+                    CloudinaryUploader.uploadImageUri(appContext, pickedThumbUri, "janzflare/thumbnails", maxDimPx = 1280).take(1000)
+                }
                 pickedThumbUri != null -> copyUriToInternal(pickedThumbUri, "thumbs", "jpg")
+                meta.thumbnailPath.isNotBlank() && useCloud -> {
+                    val tempThumbFile = Uri.parse(meta.thumbnailPath).path?.let { File(it) }
+                    try {
+                        if (tempThumbFile != null && tempThumbFile.exists()) {
+                            CloudinaryUploader.uploadImageFile(tempThumbFile, "janzflare/thumbnails").take(1000)
+                        } else ""
+                    } finally {
+                        runCatching { tempThumbFile?.delete() }
+                    }
+                }
                 meta.thumbnailPath.isNotBlank() -> meta.thumbnailPath
                 else -> ""
             }
 
-            onProgress(0.75f, "Uploading to JanzFlare...")
+            onProgress(0.90f, "Publishing to JanzFlare...")
             val videoRef = db.collection("videos").document()
             val cleanTags = tags.map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }.take(10)
             val payload = mapOf(

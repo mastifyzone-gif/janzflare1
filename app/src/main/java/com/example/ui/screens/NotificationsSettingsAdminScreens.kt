@@ -309,9 +309,9 @@ fun SettingsPrivacyScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("JanzFlare Guidelines & Info", style = MaterialTheme.typography.titleMedium)
+                        Text("Community Guidelines", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Janz Creative Studio • Mission: Empowering Indian Creators. Zero tolerance for copyright infringement, spam, harassment, or unsafe content.",
+                            "JanzFlare has zero tolerance for copyright infringement, spam, harassment, or unsafe content.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -350,7 +350,7 @@ fun SettingsPrivacyScreen(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Account Data?") },
             text = {
-                Text("This permanently deletes your JanzFlare creator profile, uploaded video records, and user preferences from Firestore.")
+                Text("This permanently deletes your JanzFlare creator profile, uploaded videos, and account preferences.")
             },
             confirmButton = {
                 Button(

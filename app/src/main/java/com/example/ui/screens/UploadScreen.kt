@@ -112,7 +112,7 @@ fun UploadScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("1. Choose Video Source", style = MaterialTheme.typography.titleMedium)
+                    Text("Video Source", style = MaterialTheme.typography.titleMedium)
                     Button(
                         onClick = {
                             videoPicker.launch(
@@ -131,15 +131,9 @@ fun UploadScreen(
                     OutlinedTextField(
                         value = remoteVideoUrl,
                         onValueChange = { remoteVideoUrl = it },
-                        label = { Text("Or paste HTTPS video stream URL (optional)") },
+                        label = { Text("Or paste video link (optional)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Text(
-                        text = "Tip: Gallery videos stay in app storage on your phone (kept across updates, cleared if uninstalled). For playback on friends' phones too, use an HTTPS .mp4 link.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Row(
@@ -167,7 +161,7 @@ fun UploadScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("2. Custom Thumbnail (Optional)", style = MaterialTheme.typography.titleMedium)
+                    Text("Thumbnail (Optional)", style = MaterialTheme.typography.titleMedium)
                     if (pickedThumbUri != null) {
                         AsyncImage(
                             model = pickedThumbUri,
@@ -180,7 +174,7 @@ fun UploadScreen(
                         )
                     } else {
                         Text(
-                            "If left blank, JanzFlare automatically extracts a crisp frame from your video.",
+                            "Optional — a frame from your video will be used automatically.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
