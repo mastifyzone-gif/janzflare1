@@ -1,0 +1,287 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Private authenticated user settings, PII, blocked users, and library lists.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the user." },
+        "email": { "type": "string", "format": "email", "description": "Private user email address." },
+        "username": { "type": "string", "description": "Unique creator handle." },
+        "displayName": { "type": "string", "description": "Display name." },
+        "themeMode": { "type": "string", "enum": ["dark", "light", "system"] },
+        "preferredLanguage": { "type": "string", "description": "Preferred video language." },
+        "interests": { "type": "array", "description": "Selected category interests." },
+        "notifyLikes": { "type": "boolean" },
+        "notifyComments": { "type": "boolean" },
+        "notifyFollowers": { "type": "boolean" },
+        "notifyUploads": { "type": "boolean" },
+        "blockedUserIds": { "type": "array", "description": "Blocked creator UIDs." },
+        "watchLaterVideoIds": { "type": "array", "description": "Watch later video IDs." },
+        "savedVideoIds": { "type": "array", "description": "Saved video IDs." },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended", "banned"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on create." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": [
+        "userId", "email", "username", "displayName", "themeMode",
+        "preferredLanguage", "interests", "notifyLikes", "notifyComments",
+        "notifyFollowers", "notifyUploads", "blockedUserIds",
+        "watchLaterVideoIds", "savedVideoIds", "accountStatus",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "CreatorProfile": {
+      "title": "CreatorProfile",
+      "description": "Public creator channel profile without PII.",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "username": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "socialLink": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended", "banned"] },
+        "followersCount": { "type": "integer" },
+        "followingCount": { "type": "integer" },
+        "totalViews": { "type": "integer" },
+        "totalVideos": { "type": "integer" },
+        "totalWatchTimeSec": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "creatorId", "displayName", "username", "bio", "avatarUrl",
+        "coverUrl", "socialLink", "verified", "accountStatus",
+        "followersCount", "followingCount", "totalViews", "totalVideos",
+        "totalWatchTimeSec", "createdAt", "updatedAt"
+      ]
+    },
+    "Video": {
+      "title": "Video",
+      "description": "Long-form video or vertical Short published on JanzFlare.",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "creatorUsername": { "type": "string" },
+        "creatorAvatarUrl": { "type": "string" },
+        "creatorVerified": { "type": "boolean" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videoUri": { "type": "string" },
+        "thumbnailUri": { "type": "string" },
+        "shortForm": { "type": "boolean" },
+        "featured": { "type": "boolean" },
+        "trendingPinned": { "type": "boolean" },
+        "category": { "type": "string" },
+        "tags": { "type": "array" },
+        "language": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["public", "private", "unlisted"] },
+        "moderationStatus": { "type": "string", "enum": ["approved", "flagged", "removed"] },
+        "processingStatus": { "type": "string", "enum": ["processing", "ready"] },
+        "durationSec": { "type": "integer" },
+        "viewsCount": { "type": "integer" },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "savesCount": { "type": "integer" },
+        "watchTimeTotalSec": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "creatorId", "creatorName", "creatorUsername", "creatorAvatarUrl",
+        "creatorVerified", "title", "description", "videoUri", "thumbnailUri",
+        "shortForm", "featured", "trendingPinned", "category", "tags",
+        "language", "visibility", "moderationStatus", "processingStatus",
+        "durationSec", "viewsCount", "likesCount", "commentsCount",
+        "savesCount", "watchTimeTotalSec", "createdAt", "updatedAt"
+      ]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Video comment or reply.",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarUrl": { "type": "string" },
+        "text": { "type": "string" },
+        "parentCommentId": { "type": "string" },
+        "likesCount": { "type": "integer" },
+        "pinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "videoId", "authorId", "authorName", "authorAvatarUrl", "text",
+        "parentCommentId", "likesCount", "pinned", "createdAt", "updatedAt"
+      ]
+    },
+    "LikeRecord": {
+      "title": "LikeRecord",
+      "description": "User video like marker.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "videoId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "videoId", "createdAt"]
+    },
+    "FollowRecord": {
+      "title": "FollowRecord",
+      "description": "User creator follow marker.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "creatorAvatarUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "creatorId", "creatorName", "creatorAvatarUrl", "createdAt"]
+    },
+    "WatchHistoryRecord": {
+      "title": "WatchHistoryRecord",
+      "description": "User watch history signal for fair recommendations.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "videoId": { "type": "string" },
+        "category": { "type": "string" },
+        "language": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "watchedSec": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "videoId", "category", "language", "creatorId", "watchedSec", "createdAt", "updatedAt"]
+    },
+    "Playlist": {
+      "title": "Playlist",
+      "description": "User-created video playlist.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videoIds": { "type": "array" },
+        "publicVisible": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "description", "videoIds", "publicVisible", "createdAt", "updatedAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "In-app notification for social interactions.",
+      "type": "object",
+      "properties": {
+        "recipientId": { "type": "string" },
+        "actorId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "comment", "reply", "follow", "upload", "system"] },
+        "message": { "type": "string" },
+        "targetVideoId": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "actorId", "actorName", "type", "message", "targetVideoId", "read", "createdAt"]
+    },
+    "ModerationReport": {
+      "title": "ModerationReport",
+      "description": "User-submitted moderation or copyright report.",
+      "type": "object",
+      "properties": {
+        "reporterId": { "type": "string" },
+        "targetType": { "type": "string", "enum": ["video", "user", "comment"] },
+        "targetId": { "type": "string" },
+        "targetVideoId": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "reviewed", "resolved", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reporterId", "targetType", "targetId", "targetVideoId", "reason", "details", "status", "createdAt", "updatedAt"]
+    },
+    "PlatformSettings": {
+      "title": "PlatformSettings",
+      "description": "Admin-managed platform categories and banner configuration.",
+      "type": "object",
+      "properties": {
+        "disabledCategories": { "type": "array" },
+        "featuredBannerText": { "type": "string" },
+        "maintenanceNotice": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["disabledCategories", "featuredBannerText", "maintenanceNotice", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin UID registry.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Private user account and PII."
+    },
+    "/users/{userId}/likes/{videoId}": {
+      "schema": { "$ref": "#/entities/LikeRecord" },
+      "description": "User's liked videos."
+    },
+    "/users/{userId}/following/{creatorId}": {
+      "schema": { "$ref": "#/entities/FollowRecord" },
+      "description": "Creators followed by the user."
+    },
+    "/users/{userId}/watchHistory/{videoId}": {
+      "schema": { "$ref": "#/entities/WatchHistoryRecord" },
+      "description": "User watch history for fair recommendations."
+    },
+    "/users/{userId}/playlists/{playlistId}": {
+      "schema": { "$ref": "#/entities/Playlist" },
+      "description": "User playlists."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "User notifications."
+    },
+    "/creators/{creatorId}": {
+      "schema": { "$ref": "#/entities/CreatorProfile" },
+      "description": "Public creator profiles."
+    },
+    "/videos/{videoId}": {
+      "schema": { "$ref": "#/entities/Video" },
+      "description": "Videos and Shorts."
+    },
+    "/videos/{videoId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/Comment" },
+      "description": "Comments and replies on a video."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ModerationReport" },
+      "description": "Content moderation reports."
+    },
+    "/platformSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/PlatformSettings" },
+      "description": "Global platform configuration."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Admin UIDs."
+    }
+  }
+}
