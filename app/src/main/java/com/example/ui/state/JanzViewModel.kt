@@ -42,7 +42,7 @@ sealed interface UiState<out T> {
 
 enum class HomeFeedTab(val label: String) {
     FOR_YOU("For You"),
-    FOLLOWING("Following"),
+    FOLLOWING("Subscriptions"),
     TRENDING("Trending"),
     LATEST("Latest"),
     FEATURED("Featured")
@@ -330,7 +330,28 @@ class JanzViewModel(
         val currentlyFollowing = followingList.value.any { it.creatorId == creator.creatorId }
         viewModelScope.launch {
             repository.toggleFollow(creator, currentlyFollowing, selfCreator?.displayName ?: "Someone")
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Follow update failed" }
+                .onSuccess {
+                    _snackbarMessage.value = if (currentlyFollowing) {
+                        "Unsubscribed from ${creator.displayName}"
+                    } else {
+                        "Subscribed to ${creator.displayName} (Bell ON)"
+                    }
+                }
+                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Subscription update failed" }
+        }
+    }
+
+    fun toggleSubscriptionBell(creator: CreatorProfile, currentlyEnabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleSubscriptionBell(creator.creatorId, currentlyEnabled)
+                .onSuccess {
+                    _snackbarMessage.value = if (!currentlyEnabled) {
+                        "Upload notifications ON for ${creator.displayName}"
+                    } else {
+                        "Upload notifications muted for ${creator.displayName}"
+                    }
+                }
+                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to update notification bell" }
         }
     }
 
@@ -489,6 +510,19 @@ class JanzViewModel(
         viewModelScope.launch {
             repository.adminSetCreatorVerified(creatorId, verified)
                 .onSuccess { _snackbarMessage.value = if (verified) "Creator verified" else "Verification removed" }
+        }
+    }
+
+    fun adminSetCreatorAffiliation(creatorId: String, affiliatedBrand: String) {
+        viewModelScope.launch {
+            repository.adminSetCreatorAffiliation(creatorId, affiliatedBrand)
+                .onSuccess {
+                    _snackbarMessage.value = if (affiliatedBrand.isNotBlank()) {
+                        "Affiliated with $affiliatedBrand"
+                    } else {
+                        "Affiliation badge removed"
+                    }
+                }
         }
     }
 

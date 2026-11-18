@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Share
@@ -162,6 +165,189 @@ fun JanzFlareMark(
     }
 }
 
+val VerifiedBlue = Color(0xFF1D9BF0)
+
+@Composable
+fun VerifiedAffiliationBadges(
+    verified: Boolean,
+    affiliatedBrand: String,
+    founderAccount: Boolean,
+    displayName: String,
+    joinedAt: Timestamp? = null,
+    iconSize: Dp = 16.dp,
+    modifier: Modifier = Modifier
+) {
+    if (!verified && affiliatedBrand.isBlank() && !founderAccount) return
+
+    var showDialog by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { showDialog = true }
+            .padding(horizontal = 3.dp, vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        if (verified || founderAccount) {
+            Icon(
+                imageVector = Icons.Default.Verified,
+                contentDescription = "Verified account",
+                tint = VerifiedBlue,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+        if (affiliatedBrand.isNotBlank() || founderAccount) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, FlareOrange.copy(alpha = 0.75f)),
+                modifier = Modifier.size(iconSize)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    JanzFlareMark(size = (iconSize - 3.dp).coerceAtLeast(10.dp), animated = false)
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        AffiliationInfoDialog(
+            displayName = displayName,
+            verified = verified || founderAccount,
+            affiliatedBrand = if (founderAccount && affiliatedBrand.isBlank()) "JanzFlare" else affiliatedBrand,
+            founderAccount = founderAccount,
+            joinedAt = joinedAt,
+            onDismiss = { showDialog = false }
+        )
+    }
+}
+
+@Composable
+fun AffiliationInfoDialog(
+    displayName: String,
+    verified: Boolean,
+    affiliatedBrand: String,
+    founderAccount: Boolean,
+    joinedAt: Timestamp?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (verified) {
+                    Icon(
+                        imageVector = Icons.Default.Verified,
+                        contentDescription = null,
+                        tint = VerifiedBlue,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                if (affiliatedBrand.isNotBlank()) {
+                    JanzFlareMark(size = 32.dp, animated = false)
+                }
+            }
+        },
+        title = {
+            Text(
+                text = if (affiliatedBrand.isNotBlank()) "Affiliated Account" else "Verified Account",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (founderAccount) {
+                    Surface(
+                        color = FlareOrange.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, FlareOrange.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Official Founder & Owner • JanzFlare का मालिक",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            color = FlareOrange,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+                if (verified) {
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = VerifiedBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Verified on JanzFlare",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = "$displayName's account has a verified blue checkmark.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (affiliatedBrand.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, FlareOrange.copy(alpha = 0.75f)),
+                            modifier = Modifier.size(22.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                JanzFlareMark(size = 16.dp, animated = false)
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "Affiliated with $affiliatedBrand",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = if (founderAccount) {
+                                    "$displayName is the main Founder & Owner affiliated with $affiliatedBrand (Janz Creative Studio)."
+                                } else {
+                                    "This account is officially affiliated with $affiliatedBrand on JanzFlare."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (joinedAt != null) {
+                    Text(
+                        text = "Joined JanzFlare on ${formatJoinDate(joinedAt)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Got it")
+            }
+        }
+    )
+}
+
 @Composable
 fun JanzBrandHeader(modifier: Modifier = Modifier) {
     Row(
@@ -235,7 +421,11 @@ fun VideoThumbnailCard(
     onWatchLaterClick: () -> Unit,
     onAddToPlaylistClick: () -> Unit,
     onReportClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    creatorVerified: Boolean = video.creatorVerified,
+    creatorAffiliatedBrand: String = "",
+    creatorFounder: Boolean = false,
+    creatorJoinedAt: Timestamp? = null
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -385,13 +575,15 @@ fun VideoThumbnailCard(
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (video.creatorVerified) {
+                            if (creatorVerified || creatorAffiliatedBrand.isNotBlank() || creatorFounder) {
                                 Spacer(Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = "Verified creator",
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(14.dp)
+                                VerifiedAffiliationBadges(
+                                    verified = creatorVerified,
+                                    affiliatedBrand = creatorAffiliatedBrand,
+                                    founderAccount = creatorFounder,
+                                    displayName = video.creatorName,
+                                    joinedAt = creatorJoinedAt,
+                                    iconSize = 14.dp
                                 )
                             }
                             Text(
@@ -536,13 +728,20 @@ fun CreatorSpotlightCard(
     badgeLabel: String,
     onClick: () -> Unit,
     onFollowClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    notifyOnUpload: Boolean = true,
+    onToggleBell: (() -> Unit)? = null
 ) {
+    val cardBorder = if (creator.founderAccount) {
+        BorderStroke(1.5.dp, Brush.linearGradient(listOf(FlareAmber, FlareOrange, ElectricViolet)))
+    } else null
+
     Card(
         modifier = modifier
-            .width(164.dp)
+            .width(176.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
+        border = cardBorder,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
@@ -550,13 +749,15 @@ fun CreatorSpotlightCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = if (creator.founderAccount) FlareOrange.copy(alpha = 0.2f) else MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text(
-                    text = badgeLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    text = if (creator.founderAccount) "FOUNDER • मालिक" else badgeLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = if (creator.founderAccount) FontWeight.Bold else FontWeight.Medium
+                    ),
+                    color = if (creator.founderAccount) FlareOrange else MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                 )
             }
@@ -567,37 +768,62 @@ fun CreatorSpotlightCard(
                 size = 54.dp
             )
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
                 Text(
                     text = creator.displayName,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
-                if (creator.verified) {
+                if (creator.verified || creator.affiliatedBrand.isNotBlank() || creator.founderAccount) {
                     Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.Verified,
-                        contentDescription = "Verified",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(14.dp)
+                    VerifiedAffiliationBadges(
+                        verified = creator.verified,
+                        affiliatedBrand = creator.affiliatedBrand,
+                        founderAccount = creator.founderAccount,
+                        displayName = creator.displayName,
+                        joinedAt = creator.createdAt,
+                        iconSize = 14.dp
                     )
                 }
             }
             Text(
-                text = "${formatCount(creator.followersCount)} followers",
+                text = "${formatCount(creator.followersCount)} subscribers",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
             if (!isSelf) {
                 if (isFollowing) {
-                    OutlinedButton(
-                        onClick = onFollowClick,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Following", style = MaterialTheme.typography.labelMedium)
+                        OutlinedButton(
+                            onClick = onFollowClick,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Subscribed", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                        if (onToggleBell != null) {
+                            IconButton(
+                                onClick = onToggleBell,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                    contentDescription = if (notifyOnUpload) "Mute upload alerts" else "Enable upload alerts",
+                                    tint = if (notifyOnUpload) FlareOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 } else {
                     Button(
@@ -605,7 +831,7 @@ fun CreatorSpotlightCard(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Follow", style = MaterialTheme.typography.labelMedium)
+                        Text("Subscribe", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -822,4 +1048,9 @@ fun formatRelativeDate(ts: Timestamp?): String {
         diffSec < 604800L -> "${diffSec / 86400L}d ago"
         else -> SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
     }
+}
+
+fun formatJoinDate(ts: Timestamp?): String {
+    val millis = ts?.toDate()?.time ?: System.currentTimeMillis()
+    return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
 }

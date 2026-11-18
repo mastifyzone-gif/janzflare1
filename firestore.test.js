@@ -49,6 +49,8 @@ function validCreatorPayload(uid) {
     coverUrl: "",
     socialLink: "",
     verified: false,
+    founderAccount: false,
+    affiliatedBrand: "",
     accountStatus: "active",
     followersCount: 0,
     followingCount: 0,
@@ -131,9 +133,14 @@ test("User PII isolation and self-privilege escalation prevention", async () => 
   // Bob can read Alice's public creator doc
   await assertSucceeds(bobDb.collection("creators").doc(ALICE_UID).get());
 
-  // Alice cannot self-verify or self-assign ghost fields
+  // Alice cannot self-verify, self-affiliate, or self-assign ghost fields
   await assertFails(aliceDb.collection("creators").doc(ALICE_UID).update({
     verified: true,
+    updatedAt: new Date(Date.now() - 500),
+  }));
+  await assertFails(aliceDb.collection("creators").doc(ALICE_UID).update({
+    founderAccount: true,
+    affiliatedBrand: "JanzFlare",
     updatedAt: new Date(Date.now() - 500),
   }));
   await assertFails(aliceDb.collection("users").doc(ALICE_UID).set({
@@ -246,5 +253,60 @@ test("Comments creation, creator comment moderation, and spoofed admin email rej
       featured: true,
       updatedAt: new Date(Date.now() - 200),
     })
+  );
+});
+
+test("Founder bootstrap, admin affiliation control, and subscriber bell toggle", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const founderDb = testEnv.authenticatedContext(ADMIN_UID, {
+    email: "mdayubjanj@gmail.com",
+    email_verified: true,
+  }).firestore();
+
+  // Founder can bootstrap their own verified + affiliated profile
+  await assertSucceeds(
+    founderDb.collection("creators").doc(ADMIN_UID).set({
+      ...validCreatorPayload(ADMIN_UID),
+      displayName: "JanzFlare Founder",
+      verified: true,
+      founderAccount: true,
+      affiliatedBrand: "JanzFlare",
+      bio: "JanzFlare का मालिक",
+    })
+  );
+
+  // Regular user Bob subscribes to founder with bell ON, then toggles bell OFF
+  await assertSucceeds(aliceDb.collection("creators").doc(ALICE_UID).set(validCreatorPayload(ALICE_UID)));
+  const now = new Date(Date.now() - 500);
+  await assertSucceeds(
+    bobDb.collection("users").doc(BOB_UID).collection("following").doc(ADMIN_UID).set({
+      userId: BOB_UID,
+      creatorId: ADMIN_UID,
+      creatorName: "JanzFlare Founder",
+      creatorAvatarUrl: "",
+      notifyOnUpload: true,
+      createdAt: now,
+    })
+  );
+  await assertSucceeds(
+    bobDb.collection("users").doc(BOB_UID).collection("following").doc(ADMIN_UID).update({
+      notifyOnUpload: false,
+    })
+  );
+  await assertSucceeds(
+    bobDb.collection("creators").doc(ADMIN_UID).collection("subscribers").doc(BOB_UID).set({
+      subscriberId: BOB_UID,
+      notifyOnUpload: false,
+      createdAt: now,
+    })
+  );
+  // Alice cannot read founder's subscriber list
+  await assertFails(
+    aliceDb.collection("creators").doc(ADMIN_UID).collection("subscribers").get()
+  );
+  // Founder can read own subscribers list
+  await assertSucceeds(
+    founderDb.collection("creators").doc(ADMIN_UID).collection("subscribers").get()
   );
 });

@@ -44,6 +44,8 @@
         "coverUrl": { "type": "string" },
         "socialLink": { "type": "string" },
         "verified": { "type": "boolean" },
+        "founderAccount": { "type": "boolean" },
+        "affiliatedBrand": { "type": "string" },
         "accountStatus": { "type": "string", "enum": ["active", "suspended", "banned"] },
         "followersCount": { "type": "integer" },
         "followingCount": { "type": "integer" },
@@ -55,9 +57,9 @@
       },
       "required": [
         "creatorId", "displayName", "username", "bio", "avatarUrl",
-        "coverUrl", "socialLink", "verified", "accountStatus",
-        "followersCount", "followingCount", "totalViews", "totalVideos",
-        "totalWatchTimeSec", "createdAt", "updatedAt"
+        "coverUrl", "socialLink", "verified", "founderAccount", "affiliatedBrand",
+        "accountStatus", "followersCount", "followingCount", "totalViews",
+        "totalVideos", "totalWatchTimeSec", "createdAt", "updatedAt"
       ]
     },
     "Video": {
@@ -135,16 +137,28 @@
     },
     "FollowRecord": {
       "title": "FollowRecord",
-      "description": "User creator follow marker.",
+      "description": "User creator subscription marker with notification bell preference.",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "creatorId": { "type": "string" },
         "creatorName": { "type": "string" },
         "creatorAvatarUrl": { "type": "string" },
+        "notifyOnUpload": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "creatorId", "creatorName", "creatorAvatarUrl", "createdAt"]
+      "required": ["userId", "creatorId", "creatorName", "creatorAvatarUrl", "notifyOnUpload", "createdAt"]
+    },
+    "CreatorSubscriber": {
+      "title": "CreatorSubscriber",
+      "description": "Privacy-safe subscriber reference under creator so upload alerts reach subscribers with bell enabled.",
+      "type": "object",
+      "properties": {
+        "subscriberId": { "type": "string" },
+        "notifyOnUpload": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["subscriberId", "notifyOnUpload", "createdAt"]
     },
     "WatchHistoryRecord": {
       "title": "WatchHistoryRecord",
@@ -262,6 +276,10 @@
     "/creators/{creatorId}": {
       "schema": { "$ref": "#/entities/CreatorProfile" },
       "description": "Public creator profiles."
+    },
+    "/creators/{creatorId}/subscribers/{subscriberId}": {
+      "schema": { "$ref": "#/entities/CreatorSubscriber" },
+      "description": "Subscriber notification preferences for a creator."
     },
     "/videos/{videoId}": {
       "schema": { "$ref": "#/entities/Video" },

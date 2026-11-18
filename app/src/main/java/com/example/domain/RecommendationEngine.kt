@@ -84,13 +84,19 @@ object RecommendationEngine {
 
     fun rankNewCreators(creators: List<CreatorProfile>, blockedIds: Set<String>): List<CreatorProfile> {
         return creators
-            .filter { it.creatorId !in blockedIds && it.accountStatus == "active" && it.followersCount < 500L }
-            .sortedByDescending { it.createdAt?.seconds ?: 0L }
+            .filter { it.creatorId !in blockedIds && it.accountStatus == "active" && (it.founderAccount || it.followersCount < 500L) }
+            .sortedWith(
+                compareByDescending<CreatorProfile> { it.founderAccount }
+                    .thenByDescending { it.createdAt?.seconds ?: 0L }
+            )
     }
 
     fun rankPopularCreators(creators: List<CreatorProfile>, blockedIds: Set<String>): List<CreatorProfile> {
         return creators
             .filter { it.creatorId !in blockedIds && it.accountStatus == "active" }
-            .sortedByDescending { it.followersCount * 10L + it.totalViews }
+            .sortedWith(
+                compareByDescending<CreatorProfile> { it.founderAccount }
+                    .thenByDescending { it.followersCount * 10L + it.totalViews }
+            )
     }
 }

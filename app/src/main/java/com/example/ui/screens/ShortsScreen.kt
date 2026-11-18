@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -68,10 +70,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.ReportContentDialog
+import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
@@ -95,7 +99,7 @@ fun ShortsScreen(
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
-    val followingIds = remember(following) { following.map { it.creatorId }.toSet() }
+    val followMap = remember(following) { following.associateBy { it.creatorId } }
 
     var commentsSheetVideo by remember { mutableStateOf<Video?>(null) }
     var reportVideoTarget by remember { mutableStateOf<Video?>(null) }
@@ -131,14 +135,18 @@ fun ShortsScreen(
         val creator = creators.firstOrNull { it.creatorId == shortVideo.creatorId }
         val isLiked = likedIds.contains(shortVideo.id)
         val isSaved = user?.savedVideoIds?.contains(shortVideo.id) == true
-        val isFollowing = shortVideo.creatorId in followingIds
+        val followRecord = followMap[shortVideo.creatorId]
+        val isFollowing = followRecord != null
+        val notifyOnUpload = followRecord?.notifyOnUpload ?: true
 
         ShortPlayerPage(
             video = shortVideo,
+            creator = creator,
             isActive = isActive,
             isLiked = isLiked,
             isSaved = isSaved,
             isFollowing = isFollowing,
+            notifyOnUpload = notifyOnUpload,
             isSelf = shortVideo.creatorId == viewModel.currentUserId,
             onViewCounted = { viewModel.recordWatch(shortVideo, 2L, countNewView = true) },
             onLikeClick = { viewModel.toggleLike(shortVideo) },
@@ -149,6 +157,7 @@ fun ShortsScreen(
             onShareClick = { shareVideoIntent(context, shortVideo) },
             onSaveClick = { viewModel.toggleSavedVideo(shortVideo) },
             onFollowClick = { if (creator != null) viewModel.toggleFollow(creator) },
+            onToggleBell = { if (creator != null) viewModel.toggleSubscriptionBell(creator, notifyOnUpload) },
             onCreatorClick = { onOpenCreatorProfile(shortVideo.creatorId) },
             onReportClick = { reportVideoTarget = shortVideo }
         )
@@ -224,10 +233,12 @@ fun ShortsScreen(
 @Composable
 private fun ShortPlayerPage(
     video: Video,
+    creator: CreatorProfile?,
     isActive: Boolean,
     isLiked: Boolean,
     isSaved: Boolean,
     isFollowing: Boolean,
+    notifyOnUpload: Boolean,
     isSelf: Boolean,
     onViewCounted: () -> Unit,
     onLikeClick: () -> Unit,
@@ -235,6 +246,7 @@ private fun ShortPlayerPage(
     onShareClick: () -> Unit,
     onSaveClick: () -> Unit,
     onFollowClick: () -> Unit,
+    onToggleBell: () -> Unit,
     onCreatorClick: () -> Unit,
     onReportClick: () -> Unit
 ) {
@@ -365,8 +377,23 @@ private fun ShortPlayerPage(
                     text = "@${video.creatorUsername}",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.clickable(onClick = onCreatorClick)
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clickable(onClick = onCreatorClick)
                 )
+                if (creator?.verified == true || video.creatorVerified || creator?.affiliatedBrand?.isNotBlank() == true || creator?.founderAccount == true) {
+                    Spacer(Modifier.width(4.dp))
+                    VerifiedAffiliationBadges(
+                        verified = creator?.verified ?: video.creatorVerified,
+                        affiliatedBrand = creator?.affiliatedBrand.orEmpty(),
+                        founderAccount = creator?.founderAccount == true,
+                        displayName = creator?.displayName ?: video.creatorName,
+                        joinedAt = creator?.createdAt,
+                        iconSize = 15.dp
+                    )
+                }
                 if (!isSelf) {
                     Spacer(Modifier.width(10.dp))
                     if (isFollowing) {
@@ -374,7 +401,15 @@ private fun ShortPlayerPage(
                             onClick = onFollowClick,
                             shape = RoundedCornerShape(20.dp)
                         ) {
-                            Text("Following", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            Text("Subscribed", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                        }
+                        IconButton(onClick = onToggleBell, modifier = Modifier.size(34.dp)) {
+                            Icon(
+                                imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                contentDescription = if (notifyOnUpload) "Upload notifications ON" else "Upload notifications muted",
+                                tint = if (notifyOnUpload) FlareOrange else Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     } else {
                         Button(
@@ -382,7 +417,7 @@ private fun ShortPlayerPage(
                             colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
                             shape = RoundedCornerShape(20.dp)
                         ) {
-                            Text("Follow", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            Text("Subscribe", color = Color.White, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }

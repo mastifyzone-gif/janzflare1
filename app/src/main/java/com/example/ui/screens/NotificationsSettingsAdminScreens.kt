@@ -67,10 +67,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.auth.signOut
 import com.example.data.model.JanzCatalog
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatRelativeDate
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
+import com.example.ui.theme.FlareOrange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +124,7 @@ fun NotificationsScreen(
                             NotificationToggleRow("Comments & Replies", user.notifyComments) {
                                 viewModel.updateNotificationPrefs(user.notifyLikes, it, user.notifyFollowers, user.notifyUploads)
                             }
-                            NotificationToggleRow("New Followers", user.notifyFollowers) {
+                            NotificationToggleRow("New Subscribers", user.notifyFollowers) {
                                 viewModel.updateNotificationPrefs(user.notifyLikes, user.notifyComments, it, user.notifyUploads)
                             }
                             NotificationToggleRow("Creator Uploads", user.notifyUploads) {
@@ -147,7 +149,7 @@ fun NotificationsScreen(
                 item {
                     EmptyStudioCard(
                         title = "All Caught Up",
-                        subtitle = "Likes, comments, replies, and follower updates appear here in real time."
+                        subtitle = "Likes, comments, replies, and subscriber upload alerts appear here in real time."
                     )
                 }
             } else {
@@ -441,6 +443,7 @@ fun AdminDashboardScreen(
 
                 1 -> {
                     items(creators, key = { it.creatorId }) { creator ->
+                        val isAffiliated = creator.affiliatedBrand.isNotBlank()
                         Card(
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -450,15 +453,26 @@ fun AdminDashboardScreen(
                                     Text(
                                         "${creator.displayName} (@${creator.username})",
                                         style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    if (creator.verified) {
-                                        Icon(Icons.Default.Verified, "Verified", tint = MaterialTheme.colorScheme.secondary)
-                                    }
+                                    VerifiedAffiliationBadges(
+                                        verified = creator.verified,
+                                        affiliatedBrand = creator.affiliatedBrand,
+                                        founderAccount = creator.founderAccount,
+                                        displayName = creator.displayName,
+                                        joinedAt = creator.createdAt,
+                                        iconSize = 18.dp
+                                    )
                                 }
                                 Text(
-                                    "Status: ${creator.accountStatus} • ${formatCount(creator.followersCount)} followers",
-                                    style = MaterialTheme.typography.bodySmall
+                                    buildString {
+                                        if (creator.founderAccount) append("FOUNDER • ")
+                                        append("Status: ${creator.accountStatus} • ${formatCount(creator.followersCount)} subscribers")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (creator.founderAccount) FlareOrange else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(onClick = {
@@ -466,6 +480,16 @@ fun AdminDashboardScreen(
                                     }) {
                                         Text(if (creator.verified) "Unverify" else "Verify")
                                     }
+                                    OutlinedButton(onClick = {
+                                        viewModel.adminSetCreatorAffiliation(
+                                            creator.creatorId,
+                                            if (isAffiliated) "" else "JanzFlare"
+                                        )
+                                    }) {
+                                        Text(if (isAffiliated) "Unaffiliate" else "Affiliate JF")
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(onClick = {
                                         val next = if (creator.accountStatus == "active") "suspended" else "active"
                                         viewModel.adminSetCreatorStatus(creator.creatorId, next)

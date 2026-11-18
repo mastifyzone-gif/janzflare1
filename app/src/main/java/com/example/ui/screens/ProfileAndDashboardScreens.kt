@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,11 +31,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
@@ -84,15 +88,19 @@ import com.example.data.model.JanzCatalog
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.JanzFlareMark
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
+import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.VideoThumbnailCard
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
+import com.example.ui.components.formatJoinDate
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.FlareAmber
 import com.example.ui.theme.FlareOrange
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,7 +151,9 @@ fun ProfileScreen(
         allPublic.filter { it.id in ids }
     }
 
-    val isFollowing = following.any { it.creatorId == creatorId }
+    val followRecord = following.firstOrNull { it.creatorId == creatorId }
+    val isFollowing = followRecord != null
+    val notifyOnUpload = followRecord?.notifyOnUpload ?: true
     val isBlocked = user?.blockedUserIds?.contains(creatorId) == true
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -259,6 +269,32 @@ fun ProfileScreen(
 
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Spacer(Modifier.height(12.dp))
+                        if (creator?.founderAccount == true) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = FlareOrange.copy(alpha = 0.14f),
+                                border = BorderStroke(
+                                    1.2.dp,
+                                    Brush.linearGradient(listOf(FlareAmber, FlareOrange, ElectricViolet))
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    JanzFlareMark(size = 22.dp, animated = false)
+                                    Text(
+                                        text = "OFFICIAL FOUNDER • JanzFlare का मालिक",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = FlareOrange
+                                    )
+                                }
+                            }
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -273,20 +309,25 @@ fun ProfileScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = creator?.displayName ?: "Creator",
-                                        style = MaterialTheme.typography.headlineMedium
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    if (creator?.verified == true) {
+                                    if (creator?.verified == true || creator?.affiliatedBrand?.isNotBlank() == true || creator?.founderAccount == true) {
                                         Spacer(Modifier.width(6.dp))
-                                        Icon(
-                                            Icons.Default.Verified,
-                                            contentDescription = "Verified",
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(18.dp)
+                                        VerifiedAffiliationBadges(
+                                            verified = creator.verified,
+                                            affiliatedBrand = creator.affiliatedBrand,
+                                            founderAccount = creator.founderAccount,
+                                            displayName = creator.displayName,
+                                            joinedAt = creator.createdAt,
+                                            iconSize = 20.dp
                                         )
                                     }
                                 }
                                 Text(
-                                    text = "@${creator?.username ?: "creator"}",
+                                    text = "@${creator?.username ?: "creator"} • Joined ${formatJoinDate(creator?.createdAt)}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -305,8 +346,8 @@ fun ProfileScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            StatPill("Followers", formatCount(creator?.followersCount ?: 0L))
-                            StatPill("Following", formatCount(creator?.followingCount ?: 0L))
+                            StatPill("Subscribers", formatCount(creator?.followersCount ?: 0L))
+                            StatPill("Subscribing", formatCount(creator?.followingCount ?: 0L))
                             StatPill("Videos", formatCount(creator?.totalVideos ?: creatorVideos.size.toLong()))
                             StatPill("Views", formatCount(creator?.totalViews ?: 0L))
                         }
@@ -340,21 +381,36 @@ fun ProfileScreen(
                         } else if (creator != null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (isFollowing) {
                                     OutlinedButton(
                                         onClick = { viewModel.toggleFollow(creator) },
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Following")
+                                        Text("Subscribed")
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (notifyOnUpload) FlareOrange.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant
+                                    ) {
+                                        IconButton(
+                                            onClick = { viewModel.toggleSubscriptionBell(creator, notifyOnUpload) }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                                contentDescription = if (notifyOnUpload) "Notifications ON" else "Notifications muted",
+                                                tint = if (notifyOnUpload) FlareOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 } else {
                                     Button(
                                         onClick = { viewModel.toggleFollow(creator) },
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Follow Creator")
+                                        Text("Subscribe")
                                     }
                                 }
                             }
@@ -409,7 +465,11 @@ fun ProfileScreen(
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
                                 onReportClick = { reportVideoTarget = video },
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                creatorVerified = creator?.verified ?: video.creatorVerified,
+                                creatorAffiliatedBrand = creator?.affiliatedBrand.orEmpty(),
+                                creatorFounder = creator?.founderAccount == true,
+                                creatorJoinedAt = creator?.createdAt
                             )
                         }
                     }
@@ -442,7 +502,11 @@ fun ProfileScreen(
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
                                 onReportClick = { reportVideoTarget = video },
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                creatorVerified = creator?.verified ?: video.creatorVerified,
+                                creatorAffiliatedBrand = creator?.affiliatedBrand.orEmpty(),
+                                creatorFounder = creator?.founderAccount == true,
+                                creatorJoinedAt = creator?.createdAt
                             )
                         }
                     }
@@ -532,6 +596,9 @@ fun ProfileScreen(
                     item {
                         Card(
                             shape = RoundedCornerShape(16.dp),
+                            border = if (creator?.founderAccount == true) {
+                                BorderStroke(1.2.dp, Brush.linearGradient(listOf(FlareAmber, FlareOrange, ElectricViolet)))
+                            } else null,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -539,10 +606,37 @@ fun ProfileScreen(
                         ) {
                             Column(
                                 modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
+                                if (creator?.founderAccount == true) {
+                                    Surface(
+                                        color = FlareOrange.copy(alpha = 0.16f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "JanzFlare का मालिक • Official Founder Account",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = FlareOrange,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
                                 Text("About ${creator?.displayName ?: "Channel"}", style = MaterialTheme.typography.titleMedium)
                                 Text(creator?.bio.orEmpty().ifBlank { "No bio added yet." }, style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Joined JanzFlare: ${formatJoinDate(creator?.createdAt)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                                 if (!creator?.socialLink.isNullOrBlank()) {
                                     Text(
                                         "Social: ${creator!!.socialLink}",
@@ -786,7 +880,7 @@ fun CreatorDashboardScreen(
                     Text("Channel Analytics (Live Firestore Data)", style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         MetricCard("Total Views", formatCount(totalViews), Modifier.weight(1f))
-                        MetricCard("Followers", formatCount(creator?.followersCount ?: 0L), Modifier.weight(1f))
+                        MetricCard("Subscribers", formatCount(creator?.followersCount ?: 0L), Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         MetricCard("Videos", videos.size.toString(), Modifier.weight(1f))

@@ -31,10 +31,16 @@ service cloud.firestore {
       return ts is timestamp && ts <= request.time;
     }
 
+    function isFounderEmail() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email == 'mdayubjanj@gmail.com';
+    }
+
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email_verified == true && request.auth.token.email == 'mdayubjanj@gmail.com')
+        isFounderEmail()
       );
     }
 
@@ -71,6 +77,8 @@ service cloud.firestore {
              data.coverUrl is string && data.coverUrl.size() <= 500 &&
              data.socialLink is string && data.socialLink.size() <= 200 &&
              data.verified is bool &&
+             (!('founderAccount' in data) || data.founderAccount is bool) &&
+             (!('affiliatedBrand' in data) || (data.affiliatedBrand is string && data.affiliatedBrand.size() <= 40)) &&
              data.accountStatus in ['active', 'suspended', 'banned'] &&
              data.followersCount is int && data.followersCount >= 0 &&
              data.followingCount is int && data.followingCount >= 0 &&
@@ -79,6 +87,13 @@ service cloud.firestore {
              data.totalWatchTimeSec is int && data.totalWatchTimeSec >= 0 &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
+    }
+
+    function unchangedFounderAndAffiliate() {
+      return ((!('founderAccount' in incoming()) && !('founderAccount' in existing())) ||
+              (('founderAccount' in incoming()) && ('founderAccount' in existing()) && incoming().founderAccount == existing().founderAccount)) &&
+             ((!('affiliatedBrand' in incoming()) && !('affiliatedBrand' in existing())) ||
+              (('affiliatedBrand' in incoming()) && ('affiliatedBrand' in existing()) && incoming().affiliatedBrand == existing().affiliatedBrand));
     }
 
     function isValidVideo(data) {
@@ -217,7 +232,7 @@ service cloud.firestore {
         allow delete: if isValidId(userId) && isValidId(videoId) && isOwner(userId);
       }
 
-      // Following subcollection
+      // Following / Subscribed subcollection
       match /following/{creatorId} {
         allow get: if isValidId(userId) && isValidId(creatorId) && isOwner(userId);
         allow list: if isValidId(userId) && isOwner(userId);
@@ -226,9 +241,16 @@ service cloud.firestore {
                          incoming().creatorId == creatorId &&
                          incoming().creatorName is string && incoming().creatorName.size() >= 1 && incoming().creatorName.size() <= 60 &&
                          incoming().creatorAvatarUrl is string && incoming().creatorAvatarUrl.size() <= 500 &&
-                         incoming().keys().hasAll(['userId', 'creatorId', 'creatorName', 'creatorAvatarUrl', 'createdAt']) &&
-                         incoming().keys().hasOnly(['userId', 'creatorId', 'creatorName', 'creatorAvatarUrl', 'createdAt']) &&
+                         incoming().notifyOnUpload is bool &&
+                         incoming().keys().hasAll(['userId', 'creatorId', 'creatorName', 'creatorAvatarUrl', 'notifyOnUpload', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'creatorId', 'creatorName', 'creatorAvatarUrl', 'notifyOnUpload', 'createdAt']) &&
                          isValidTimestamp(incoming().createdAt);
+        allow update: if isValidId(userId) && isValidId(creatorId) && isOwner(userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().creatorId == existing().creatorId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().notifyOnUpload is bool &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['notifyOnUpload']);
         allow delete: if isValidId(userId) && isValidId(creatorId) && isOwner(userId);
       }
 
@@ -300,7 +322,7 @@ service cloud.firestore {
       allow create: if isValidId(creatorId) &&
                        isOwner(creatorId) &&
                        incoming().creatorId == request.auth.uid &&
-                       incoming().verified == false &&
+                       (isFounderEmail() || (incoming().verified == false && incoming().founderAccount == false && incoming().affiliatedBrand == '')) &&
                        incoming().accountStatus == 'active' &&
                        incoming().followersCount == 0 &&
                        incoming().followingCount == 0 &&
@@ -309,40 +331,52 @@ service cloud.firestore {
                        incoming().totalWatchTimeSec == 0 &&
                        incoming().keys().hasAll([
                          'creatorId', 'displayName', 'username', 'bio', 'avatarUrl',
-                         'coverUrl', 'socialLink', 'verified', 'accountStatus',
-                         'followersCount', 'followingCount', 'totalViews', 'totalVideos',
-                         'totalWatchTimeSec', 'createdAt', 'updatedAt'
+                         'coverUrl', 'socialLink', 'verified', 'founderAccount', 'affiliatedBrand',
+                         'accountStatus', 'followersCount', 'followingCount', 'totalViews',
+                         'totalVideos', 'totalWatchTimeSec', 'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
                          'creatorId', 'displayName', 'username', 'bio', 'avatarUrl',
-                         'coverUrl', 'socialLink', 'verified', 'accountStatus',
-                         'followersCount', 'followingCount', 'totalViews', 'totalVideos',
-                         'totalWatchTimeSec', 'createdAt', 'updatedAt'
+                         'coverUrl', 'socialLink', 'verified', 'founderAccount', 'affiliatedBrand',
+                         'accountStatus', 'followersCount', 'followingCount', 'totalViews',
+                         'totalVideos', 'totalWatchTimeSec', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidCreatorProfile(incoming());
 
       allow update: if isValidId(creatorId) && isSignedIn() && isValidCreatorProfile(incoming()) &&
                        incoming().creatorId == existing().creatorId &&
                        incoming().createdAt == existing().createdAt && (
-        // Tier 1: Admin verification & moderation
+        // Tier 1: Admin verification, affiliation & moderation
         (
           isAdmin() &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['verified', 'accountStatus', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'verified', 'affiliatedBrand', 'founderAccount', 'accountStatus', 'updatedAt'
+          ])
+        ) ||
+        // Tier 1B: Bootstrapped founder self-upgrade (preserves original createdAt)
+        (
+          isOwner(creatorId) &&
+          isFounderEmail() &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'verified', 'founderAccount', 'affiliatedBrand', 'bio', 'updatedAt'
+          ])
         ) ||
         // Tier 2: Owner profile edit & own stats
         (
           isOwner(creatorId) &&
           incoming().verified == existing().verified &&
           incoming().accountStatus == existing().accountStatus &&
+          unchangedFounderAndAffiliate() &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'displayName', 'username', 'bio', 'avatarUrl', 'coverUrl',
             'socialLink', 'followingCount', 'totalVideos', 'updatedAt'
           ])
         ) ||
-        // Tier 3: Peer follow/unfollow delta
+        // Tier 3: Peer subscribe/unsubscribe delta
         (
           incoming().verified == existing().verified &&
           incoming().accountStatus == existing().accountStatus &&
+          unchangedFounderAndAffiliate() &&
           (incoming().followersCount == existing().followersCount + 1 || incoming().followersCount == existing().followersCount - 1) &&
           incoming().diff(existing()).affectedKeys().hasOnly(['followersCount', 'updatedAt'])
         ) ||
@@ -350,6 +384,7 @@ service cloud.firestore {
         (
           incoming().verified == existing().verified &&
           incoming().accountStatus == existing().accountStatus &&
+          unchangedFounderAndAffiliate() &&
           incoming().totalViews >= existing().totalViews &&
           incoming().totalWatchTimeSec >= existing().totalWatchTimeSec &&
           incoming().diff(existing()).affectedKeys().hasOnly(['totalViews', 'totalWatchTimeSec', 'updatedAt'])
@@ -357,6 +392,19 @@ service cloud.firestore {
       );
 
       allow delete: if isValidId(creatorId) && (isOwner(creatorId) || isAdmin());
+
+      // Privacy-safe subscriber notification registry
+      match /subscribers/{subscriberId} {
+        allow get: if isValidId(creatorId) && isValidId(subscriberId) && (isOwner(subscriberId) || isOwner(creatorId) || isAdmin());
+        allow list: if isValidId(creatorId) && (isOwner(creatorId) || isAdmin());
+        allow create, update: if isValidId(creatorId) && isValidId(subscriberId) && isOwner(subscriberId) &&
+                                 incoming().subscriberId == request.auth.uid &&
+                                 incoming().notifyOnUpload is bool &&
+                                 incoming().keys().hasAll(['subscriberId', 'notifyOnUpload', 'createdAt']) &&
+                                 incoming().keys().hasOnly(['subscriberId', 'notifyOnUpload', 'createdAt']) &&
+                                 isValidTimestamp(incoming().createdAt);
+        allow delete: if isValidId(creatorId) && isValidId(subscriberId) && (isOwner(subscriberId) || isAdmin());
+      }
     }
 
     // 3. Videos & Shorts

@@ -47,4 +47,28 @@ class ExampleUnitTest {
         assertEquals(2, ranked.size)
         assertEquals("v2", ranked.first().id)
     }
+
+    @Test
+    fun recommendationEngine_prioritizes_founder_account_first() {
+        val founder = CreatorProfile(
+            creatorId = "founder_1",
+            displayName = "JanzFlare Owner",
+            verified = true,
+            founderAccount = true,
+            affiliatedBrand = "JanzFlare",
+            followersCount = 10L
+        )
+        val popular = CreatorProfile(
+            creatorId = "pop_1",
+            displayName = "Popular Creator",
+            followersCount = 25_000L,
+            totalViews = 500_000L
+        )
+
+        val popRanked = RecommendationEngine.rankPopularCreators(listOf(popular, founder), emptySet())
+        val newRanked = RecommendationEngine.rankNewCreators(listOf(popular, founder), emptySet())
+
+        assertEquals("founder_1", popRanked.first().creatorId)
+        assertEquals("founder_1", newRanked.first().creatorId)
+    }
 }

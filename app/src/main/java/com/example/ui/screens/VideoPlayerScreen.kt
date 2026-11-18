@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -108,6 +110,7 @@ import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
+import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
 import com.example.ui.components.formatRelativeDate
@@ -149,7 +152,9 @@ fun VideoPlayerScreen(
     val user = (userState as? UiState.Success)?.data
     val isLiked = likedIds.contains(videoId)
     val isSaved = user?.savedVideoIds?.contains(videoId) == true
-    val isFollowing = following.any { it.creatorId == video?.creatorId }
+    val followRecord = following.firstOrNull { it.creatorId == video?.creatorId }
+    val isFollowing = followRecord != null
+    val notifyOnUpload = followRecord?.notifyOnUpload ?: true
     val upNextVideos = remember(allVideos, videoId) {
         allVideos.filter { it.id != videoId && !it.shortForm }.take(8)
     }
@@ -666,32 +671,51 @@ fun VideoPlayerScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = creator?.displayName ?: video.creatorName,
-                                        style = MaterialTheme.typography.titleMedium
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    if (creator?.verified == true || video.creatorVerified) {
+                                    if (creator?.verified == true || video.creatorVerified || creator?.affiliatedBrand?.isNotBlank() == true || creator?.founderAccount == true) {
                                         Spacer(Modifier.width(4.dp))
-                                        Icon(
-                                            Icons.Default.Verified,
-                                            contentDescription = "Verified",
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(16.dp)
+                                        VerifiedAffiliationBadges(
+                                            verified = creator?.verified ?: video.creatorVerified,
+                                            affiliatedBrand = creator?.affiliatedBrand.orEmpty(),
+                                            founderAccount = creator?.founderAccount == true,
+                                            displayName = creator?.displayName ?: video.creatorName,
+                                            joinedAt = creator?.createdAt,
+                                            iconSize = 16.dp
                                         )
                                     }
                                 }
                                 Text(
-                                    text = "${formatCount(creator?.followersCount ?: 0L)} followers",
+                                    text = "${formatCount(creator?.followersCount ?: 0L)} subscribers",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             if (video.creatorId != viewModel.currentUserId && creator != null) {
                                 if (isFollowing) {
-                                    OutlinedButton(onClick = { viewModel.toggleFollow(creator) }) {
-                                        Text("Following")
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        OutlinedButton(onClick = { viewModel.toggleFollow(creator) }) {
+                                            Text("Subscribed")
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.toggleSubscriptionBell(creator, notifyOnUpload) }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (notifyOnUpload) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                                contentDescription = if (notifyOnUpload) "Upload notifications ON" else "Upload notifications muted",
+                                                tint = if (notifyOnUpload) FlareOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 } else {
                                     Button(onClick = { viewModel.toggleFollow(creator) }) {
-                                        Text("Follow")
+                                        Text("Subscribe")
                                     }
                                 }
                             }

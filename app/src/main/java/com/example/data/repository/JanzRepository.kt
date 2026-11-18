@@ -58,6 +58,11 @@ class JanzRepository(
 
     private val auth get() = Firebase.auth
 
+    companion object {
+        const val FOUNDER_EMAIL = "mdayubjanj@gmail.com"
+        const val FOUNDER_BIO = "JanzFlare का मालिक | Founder & Owner of JanzFlare (Janz Creative Studio) — आपकी प्रतिभा, आपकी आवाज़, आपकी दुनिया।"
+    }
+
     private fun requireUserId(): String =
         auth.currentUser?.uid
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
@@ -97,13 +102,25 @@ class JanzRepository(
         db.collection("creators")
             .whereEqualTo("accountStatus", "active")
             .snapshots()
-            .map { snap -> snap.toObjects(CreatorProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
+            .map { snap ->
+                snap.toObjects(CreatorProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    .sortedWith(
+                        compareByDescending<CreatorProfile> { it.founderAccount }
+                            .thenByDescending { it.followersCount }
+                    )
+            }
     }
 
     fun observeAllCreatorsForAdmin(): Flow<List<CreatorProfile>> = safeSnapshotFlow("creators(admin)") {
         db.collection("creators")
             .snapshots()
-            .map { snap -> snap.toObjects(CreatorProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
+            .map { snap ->
+                snap.toObjects(CreatorProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    .sortedWith(
+                        compareByDescending<CreatorProfile> { it.founderAccount }
+                            .thenByDescending { it.followersCount }
+                    )
+            }
     }
 
     fun observePublicVideos(): Flow<List<Video>> = safeSnapshotFlow("videos") {
@@ -249,16 +266,20 @@ class JanzRepository(
                 userRef.set(userPayload).await()
             }
 
+            val isFounder = user.isEmailVerified && user.email.equals(FOUNDER_EMAIL, ignoreCase = true)
+
             if (!creatorSnap.exists()) {
                 val creatorPayload = mapOf(
                     "creatorId" to uid,
                     "displayName" to displayName,
                     "username" to finalUsername,
-                    "bio" to "Creating on JanzFlare — Your Talent. Your Voice. Your World.",
+                    "bio" to if (isFounder) FOUNDER_BIO else "Creating on JanzFlare — Your Talent. Your Voice. Your World.",
                     "avatarUrl" to avatarUrl,
                     "coverUrl" to "",
                     "socialLink" to "",
-                    "verified" to false,
+                    "verified" to isFounder,
+                    "founderAccount" to isFounder,
+                    "affiliatedBrand" to if (isFounder) "JanzFlare" else "",
                     "accountStatus" to "active",
                     "followersCount" to 0L,
                     "followingCount" to 0L,
@@ -269,6 +290,21 @@ class JanzRepository(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 creatorRef.set(creatorPayload).await()
+            } else if (isFounder) {
+                val founderUpdates = mutableMapOf<String, Any>()
+                if (creatorSnap.getBoolean("founderAccount") != true) founderUpdates["founderAccount"] = true
+                if (creatorSnap.getBoolean("verified") != true) founderUpdates["verified"] = true
+                if (creatorSnap.getString("affiliatedBrand").orEmpty() != "JanzFlare") {
+                    founderUpdates["affiliatedBrand"] = "JanzFlare"
+                }
+                val existingBio = creatorSnap.getString("bio").orEmpty()
+                if (existingBio.isBlank() || existingBio == "Creating on JanzFlare — Your Talent. Your Voice. Your World.") {
+                    founderUpdates["bio"] = FOUNDER_BIO
+                }
+                if (founderUpdates.isNotEmpty()) {
+                    founderUpdates["updatedAt"] = FieldValue.serverTimestamp()
+                    creatorRef.update(founderUpdates).await()
+                }
             }
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -496,6 +532,30 @@ class JanzRepository(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
+            if (visibility == "public") {
+                try {
+                    val subsSnap = db.collection("creators").document(uid).collection("subscribers")
+                        .whereEqualTo("notifyOnUpload", true)
+                        .get()
+                        .await()
+                    val actorName = creator.displayName.ifBlank { "Creator" }.take(60)
+                    for (subDoc in subsSnap.documents) {
+                        val subUid = subDoc.getString("subscriberId") ?: subDoc.id
+                        if (subUid.isNotBlank() && subUid != uid) {
+                            sendNotification(
+                                recipientId = subUid,
+                                actorId = uid,
+                                actorName = actorName,
+                                type = "upload",
+                                message = "$actorName uploaded a new ${if (shortForm) "Short" else "video"}: \"${cleanTitle.take(40)}\"",
+                                targetVideoId = videoRef.id
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("JanzRepository", "Non-fatal subscriber upload notify error: ${e.message}")
+                }
+            }
             onProgress(1f, "Published!")
             Result.success(videoRef.id)
         } catch (e: CancellationException) {
@@ -613,11 +673,15 @@ class JanzRepository(
         if (uid == creator.creatorId) return Result.success(Unit)
         return try {
             val followRef = db.collection("users").document(uid).collection("following").document(creator.creatorId)
+            val subscriberRef = db.collection("creators").document(creator.creatorId).collection("subscribers").document(uid)
             val targetCreatorRef = db.collection("creators").document(creator.creatorId)
             val selfCreatorRef = db.collection("creators").document(uid)
 
             if (currentlyFollowing) {
                 followRef.delete().await()
+                try {
+                    subscriberRef.delete().await()
+                } catch (_: Exception) {}
                 if (creator.followersCount > 0L) {
                     targetCreatorRef.update(
                         mapOf("followersCount" to FieldValue.increment(-1L), "updatedAt" to FieldValue.serverTimestamp())
@@ -636,6 +700,14 @@ class JanzRepository(
                         "creatorId" to creator.creatorId,
                         "creatorName" to creator.displayName.ifBlank { "Creator" }.take(60),
                         "creatorAvatarUrl" to creator.avatarUrl.take(500),
+                        "notifyOnUpload" to true,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+                subscriberRef.set(
+                    mapOf(
+                        "subscriberId" to uid,
+                        "notifyOnUpload" to true,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
@@ -650,7 +722,7 @@ class JanzRepository(
                     actorId = uid,
                     actorName = actorName,
                     type = "follow",
-                    message = "$actorName started following you",
+                    message = "$actorName subscribed to your channel",
                     targetVideoId = ""
                 )
             }
@@ -659,6 +731,31 @@ class JanzRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, "creators/${creator.creatorId}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleSubscriptionBell(creatorId: String, currentlyEnabled: Boolean): Result<Unit> {
+        val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Not signed in"))
+        val nextEnabled = !currentlyEnabled
+        return try {
+            db.collection("users").document(uid).collection("following").document(creatorId)
+                .update(mapOf("notifyOnUpload" to nextEnabled))
+                .await()
+            db.collection("creators").document(creatorId).collection("subscribers").document(uid)
+                .set(
+                    mapOf(
+                        "subscriberId" to uid,
+                        "notifyOnUpload" to nextEnabled,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "users/$uid/following/$creatorId")
             Result.failure(e)
         }
     }
@@ -995,6 +1092,23 @@ class JanzRepository(
         return try {
             db.collection("creators").document(creatorId).update(
                 mapOf("verified" to verified, "updatedAt" to FieldValue.serverTimestamp())
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "creators/$creatorId")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminSetCreatorAffiliation(creatorId: String, affiliatedBrand: String): Result<Unit> {
+        return try {
+            db.collection("creators").document(creatorId).update(
+                mapOf(
+                    "affiliatedBrand" to affiliatedBrand.trim().take(40),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
             ).await()
             Result.success(Unit)
         } catch (e: CancellationException) {

@@ -121,6 +121,8 @@ fun HomeScreen(
     val unreadNotifs = notifications.count { !it.read }
     val blocked = user?.blockedUserIds?.toSet().orEmpty()
     val followingIds = remember(following) { following.map { it.creatorId }.toSet() }
+    val notifyMap = remember(following) { following.associate { it.creatorId to it.notifyOnUpload } }
+    val creatorsById = remember(creators) { creators.associateBy { it.creatorId } }
     val popularCreators = remember(creators, blocked) { RecommendationEngine.rankPopularCreators(creators, blocked).take(10) }
     val newCreators = remember(creators, blocked) { RecommendationEngine.rankNewCreators(creators, blocked).take(10) }
 
@@ -297,7 +299,7 @@ fun HomeScreen(
                         item {
                             EmptyStudioCard(
                                 title = if (selectedTab == HomeFeedTab.FOLLOWING) {
-                                    "No videos from followed creators yet"
+                                    "No videos from subscribed creators yet"
                                 } else {
                                     "Be the First Creator to Spark JanzFlare"
                                 },
@@ -309,6 +311,7 @@ fun HomeScreen(
                         }
                     } else {
                         items(homeFeed, key = { it.id }) { video ->
+                            val videoCreator = creatorsById[video.creatorId]
                             VideoThumbnailCard(
                                 video = video,
                                 isLiked = likedIds.contains(video.id),
@@ -322,7 +325,11 @@ fun HomeScreen(
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
                                 onReportClick = { reportVideoTarget = video },
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                creatorVerified = videoCreator?.verified ?: video.creatorVerified,
+                                creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
+                                creatorFounder = videoCreator?.founderAccount == true,
+                                creatorJoinedAt = videoCreator?.createdAt
                             )
                         }
                     }
@@ -344,13 +351,16 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(newCreators, key = { "new_${it.creatorId}" }) { creator ->
+                                val bellEnabled = notifyMap[creator.creatorId] ?: true
                                 CreatorSpotlightCard(
                                     creator = creator,
                                     isFollowing = creator.creatorId in followingIds,
                                     isSelf = creator.creatorId == viewModel.currentUserId,
                                     badgeLabel = "Rising Creator",
                                     onClick = { onOpenCreatorProfile(creator.creatorId) },
-                                    onFollowClick = { viewModel.toggleFollow(creator) }
+                                    onFollowClick = { viewModel.toggleFollow(creator) },
+                                    notifyOnUpload = bellEnabled,
+                                    onToggleBell = { viewModel.toggleSubscriptionBell(creator, bellEnabled) }
                                 )
                             }
                         }
@@ -372,13 +382,16 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(popularCreators, key = { "pop_${it.creatorId}" }) { creator ->
+                                val bellEnabled = notifyMap[creator.creatorId] ?: true
                                 CreatorSpotlightCard(
                                     creator = creator,
                                     isFollowing = creator.creatorId in followingIds,
                                     isSelf = creator.creatorId == viewModel.currentUserId,
                                     badgeLabel = "Popular",
                                     onClick = { onOpenCreatorProfile(creator.creatorId) },
-                                    onFollowClick = { viewModel.toggleFollow(creator) }
+                                    onFollowClick = { viewModel.toggleFollow(creator) },
+                                    notifyOnUpload = bellEnabled,
+                                    onToggleBell = { viewModel.toggleSubscriptionBell(creator, bellEnabled) }
                                 )
                             }
                         }
@@ -508,6 +521,8 @@ fun ExploreSearchScreen(
     val blocked = user?.blockedUserIds?.toSet().orEmpty()
     val allVideos = (publicVideosState as? UiState.Success)?.data?.filter { it.creatorId !in blocked }.orEmpty()
     val followingIds = remember(following) { following.map { it.creatorId }.toSet() }
+    val notifyMap = remember(following) { following.associate { it.creatorId to it.notifyOnUpload } }
+    val creatorsById = remember(creators) { creators.associateBy { it.creatorId } }
 
     val trendingTags = remember(allVideos) {
         allVideos.flatMap { it.tags }
@@ -563,7 +578,7 @@ fun ExploreSearchScreen(
         creators.filter { c ->
             c.creatorId !in blocked &&
                 (q.isBlank() || c.displayName.lowercase().contains(q) || c.username.lowercase().contains(q))
-        }
+        }.sortedByDescending { it.founderAccount }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -711,6 +726,7 @@ fun ExploreSearchScreen(
                             Spacer(Modifier.height(8.dp))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 items(filteredCreators, key = { it.creatorId }) { creator ->
+                                    val bellEnabled = notifyMap[creator.creatorId] ?: true
                                     CreatorSpotlightCard(
                                         creator = creator,
                                         isFollowing = creator.creatorId in followingIds,
@@ -720,7 +736,9 @@ fun ExploreSearchScreen(
                                             if (query.isNotBlank()) viewModel.addRecentSearch(query)
                                             onOpenCreatorProfile(creator.creatorId)
                                         },
-                                        onFollowClick = { viewModel.toggleFollow(creator) }
+                                        onFollowClick = { viewModel.toggleFollow(creator) },
+                                        notifyOnUpload = bellEnabled,
+                                        onToggleBell = { viewModel.toggleSubscriptionBell(creator, bellEnabled) }
                                     )
                                 }
                             }
@@ -739,6 +757,7 @@ fun ExploreSearchScreen(
                     }
                 } else {
                     items(filteredVideos, key = { it.id }) { video ->
+                        val videoCreator = creatorsById[video.creatorId]
                         VideoThumbnailCard(
                             video = video,
                             isLiked = likedIds.contains(video.id),
@@ -754,7 +773,11 @@ fun ExploreSearchScreen(
                             onSaveClick = { viewModel.toggleSavedVideo(video) },
                             onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                             onAddToPlaylistClick = { playlistVideoId = video.id },
-                            onReportClick = { reportVideoTarget = video }
+                            onReportClick = { reportVideoTarget = video },
+                            creatorVerified = videoCreator?.verified ?: video.creatorVerified,
+                            creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
+                            creatorFounder = videoCreator?.founderAccount == true,
+                            creatorJoinedAt = videoCreator?.createdAt
                         )
                     }
                 }

@@ -41,6 +41,8 @@ data class CreatorProfile(
     val coverUrl: String = "",
     val socialLink: String = "",
     val verified: Boolean = false,
+    val founderAccount: Boolean = false,
+    val affiliatedBrand: String = "",
     val accountStatus: String = "active",
     val followersCount: Long = 0L,
     val followingCount: Long = 0L,
@@ -107,6 +109,7 @@ data class FollowRecord(
     val creatorId: String = "",
     val creatorName: String = "",
     val creatorAvatarUrl: String = "",
+    val notifyOnUpload: Boolean = true,
     @ServerTimestamp val createdAt: Timestamp? = null
 )
 
