@@ -91,6 +91,7 @@ import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.FlareOrange
 import com.example.ui.theme.JanzFlareTheme
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -117,6 +118,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
+            val isFirebaseReady = remember { FirebaseApp.getApps(this).isNotEmpty() }
+            if (!isFirebaseReady) {
+                JanzFlareTheme(themeMode = "dark") {
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "JanzFlare Setup Required",
+                                style = MaterialTheme.typography.headlineMedium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Firebase configuration (google-services.json) was not included in this build. Add GOOGLE_SERVICES_JSON to GitHub Secrets or place app/google-services.json in the project and rebuild.",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+                return@setContent
+            }
+
             var splashDone by remember { mutableStateOf(false) }
             val currentUser by Firebase.auth.authStateFlow()
                 .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
