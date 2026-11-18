@@ -90,7 +90,7 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
                 .alpha(alphaAnim.value),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            JanzFlareMark(size = 112.dp, animated = true)
+            JanzFlareMark(size = 136.dp, animated = true)
             Spacer(Modifier.height(20.dp))
             Text(
                 text = "JanzFlare",
@@ -171,7 +171,7 @@ fun AuthScreen(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                JanzFlareMark(size = 86.dp, animated = true)
+                JanzFlareMark(size = 104.dp, animated = true)
                 Spacer(Modifier.height(16.dp))
                 Text(
                     text = "Welcome to JanzFlare",

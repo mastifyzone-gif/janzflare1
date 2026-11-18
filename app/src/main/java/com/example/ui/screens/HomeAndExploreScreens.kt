@@ -79,6 +79,7 @@ import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.VideoThumbnailCard
 import com.example.ui.components.formatCount
+import com.example.ui.components.isMediaUriAvailable
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.HomeFeedTab
 import com.example.ui.state.JanzViewModel
@@ -329,7 +330,8 @@ fun HomeScreen(
                                 creatorVerified = videoCreator?.verified ?: video.creatorVerified,
                                 creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
                                 creatorFounder = videoCreator?.founderAccount == true,
-                                creatorJoinedAt = videoCreator?.createdAt
+                                creatorJoinedAt = videoCreator?.createdAt,
+                                creatorAvatarUrl = videoCreator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
                             )
                         }
                     }
@@ -428,6 +430,9 @@ private fun ShortPreviewCard(
     video: Video,
     onClick: () -> Unit
 ) {
+    val thumbAvailable = remember(video.thumbnailUri) { isMediaUriAvailable(video.thumbnailUri) }
+    var thumbError by remember(video.thumbnailUri) { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .width(126.dp)
@@ -437,11 +442,12 @@ private fun ShortPreviewCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (video.thumbnailUri.isNotBlank()) {
+            if (thumbAvailable && !thumbError) {
                 AsyncImage(
                     model = video.thumbnailUri,
                     contentDescription = video.title,
                     contentScale = ContentScale.Crop,
+                    onError = { thumbError = true },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -777,7 +783,8 @@ fun ExploreSearchScreen(
                             creatorVerified = videoCreator?.verified ?: video.creatorVerified,
                             creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
                             creatorFounder = videoCreator?.founderAccount == true,
-                            creatorJoinedAt = videoCreator?.createdAt
+                            creatorJoinedAt = videoCreator?.createdAt,
+                            creatorAvatarUrl = videoCreator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
                         )
                     }
                 }

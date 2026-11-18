@@ -96,6 +96,8 @@ import com.example.ui.components.VideoThumbnailCard
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
 import com.example.ui.components.formatJoinDate
+import com.example.ui.components.isLocalFileMissing
+import com.example.ui.components.isMediaUriAvailable
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
@@ -238,16 +240,21 @@ fun ProfileScreen(
             // Cover Banner + Avatar + Header Info
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    val coverUrl = creator?.coverUrl.orEmpty()
+                    val coverAvailable = remember(coverUrl) { isMediaUriAvailable(coverUrl) }
+                    var coverError by remember(coverUrl) { mutableStateOf(false) }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(140.dp)
                     ) {
-                        if (!creator?.coverUrl.isNullOrBlank()) {
+                        if (coverAvailable && !coverError) {
                             AsyncImage(
-                                model = creator?.coverUrl,
+                                model = coverUrl,
                                 contentDescription = "Cover photo",
                                 contentScale = ContentScale.Crop,
+                                onError = { coverError = true },
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
@@ -469,7 +476,8 @@ fun ProfileScreen(
                                 creatorVerified = creator?.verified ?: video.creatorVerified,
                                 creatorAffiliatedBrand = creator?.affiliatedBrand.orEmpty(),
                                 creatorFounder = creator?.founderAccount == true,
-                                creatorJoinedAt = creator?.createdAt
+                                creatorJoinedAt = creator?.createdAt,
+                                creatorAvatarUrl = creator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
                             )
                         }
                     }
@@ -506,7 +514,8 @@ fun ProfileScreen(
                                 creatorVerified = creator?.verified ?: video.creatorVerified,
                                 creatorAffiliatedBrand = creator?.affiliatedBrand.orEmpty(),
                                 creatorFounder = creator?.founderAccount == true,
-                                creatorJoinedAt = creator?.createdAt
+                                creatorJoinedAt = creator?.createdAt,
+                                creatorAvatarUrl = creator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
                             )
                         }
                     }
@@ -780,6 +789,13 @@ private fun EditProfileDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (isLocalFileMissing(creator.avatarUrl) && avatarUri == null) {
+                    Text(
+                        text = "Your previous local profile photo was removed when the older APK was uninstalled. Tap Change Avatar to pick it again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FlareOrange
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },

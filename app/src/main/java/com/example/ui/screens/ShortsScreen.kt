@@ -34,7 +34,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -77,6 +80,7 @@ import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
+import com.example.ui.components.isLocalFileMissing
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
@@ -252,17 +256,21 @@ private fun ShortPlayerPage(
 ) {
     val context = LocalContext.current
     var pausedByUser by remember(video.id) { mutableStateOf(false) }
+    val localVideoMissing = remember(video.videoUri) { isLocalFileMissing(video.videoUri) }
+    var playerErrorMessage by remember(video.id, video.videoUri) { mutableStateOf<String?>(null) }
 
     val exoPlayer = remember(video.id) {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_ONE
-            setMediaItem(MediaItem.fromUri(video.videoUri))
-            prepare()
+            if (video.videoUri.isNotBlank() && !isLocalFileMissing(video.videoUri)) {
+                setMediaItem(MediaItem.fromUri(video.videoUri))
+                prepare()
+            }
         }
     }
 
-    LaunchedEffect(isActive, pausedByUser) {
-        if (isActive && !pausedByUser) {
+    LaunchedEffect(isActive, pausedByUser, localVideoMissing) {
+        if (isActive && !pausedByUser && !localVideoMissing) {
             exoPlayer.playWhenReady = true
             onViewCounted()
         } else {
@@ -271,7 +279,16 @@ private fun ShortPlayerPage(
     }
 
     DisposableEffect(exoPlayer) {
-        onDispose { exoPlayer.release() }
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playerErrorMessage = error.localizedMessage ?: "Failed to play Short."
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
     }
 
     Box(
@@ -294,7 +311,38 @@ private fun ShortPlayerPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (pausedByUser) {
+        if (localVideoMissing || playerErrorMessage != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Warning, "Unavailable", tint = FlareOrange, modifier = Modifier.size(36.dp))
+                Text(
+                    text = if (localVideoMissing) {
+                        "Short file unavailable on this phone"
+                    } else {
+                        playerErrorMessage.orEmpty()
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                if (!localVideoMissing) {
+                    OutlinedButton(onClick = {
+                        playerErrorMessage = null
+                        exoPlayer.setMediaItem(MediaItem.fromUri(video.videoUri))
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }) {
+                        Icon(Icons.Default.Refresh, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Retry", color = Color.White)
+                    }
+                }
+            }
+        } else if (pausedByUser) {
             Box(
                 modifier = Modifier
                     .size(64.dp)

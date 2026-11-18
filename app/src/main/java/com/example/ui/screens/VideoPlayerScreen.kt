@@ -52,11 +52,13 @@ import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Reply
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WatchLater
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -99,6 +101,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -114,6 +117,7 @@ import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
 import com.example.ui.components.formatRelativeDate
+import com.example.ui.components.isLocalFileMissing
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
@@ -172,6 +176,10 @@ fun VideoPlayerScreen(
     var qualityLabel by remember { mutableStateOf("Auto") }
     var speedMenuOpen by remember { mutableStateOf(false) }
     var qualityMenuOpen by remember { mutableStateOf(false) }
+    var playerErrorMessage by remember(videoId, video?.videoUri) { mutableStateOf<String?>(null) }
+    val localVideoMissing = remember(video?.videoUri) {
+        video != null && isLocalFileMissing(video.videoUri)
+    }
 
     var commentText by remember { mutableStateOf("") }
     var replyTarget by remember { mutableStateOf<Comment?>(null) }
@@ -219,9 +227,10 @@ fun VideoPlayerScreen(
         ExoPlayer.Builder(context).build()
     }
 
-    LaunchedEffect(video?.videoUri) {
+    LaunchedEffect(video?.videoUri, localVideoMissing) {
         val uri = video?.videoUri.orEmpty()
-        if (uri.isNotBlank()) {
+        playerErrorMessage = null
+        if (uri.isNotBlank() && !localVideoMissing) {
             exoPlayer.setMediaItem(MediaItem.fromUri(uri))
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
@@ -232,6 +241,11 @@ fun VideoPlayerScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                playerErrorMessage = error.localizedMessage
+                    ?: "Could not load video stream. Check your internet connection or video URL."
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -337,7 +351,73 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            if (controlsVisible) {
+            if (localVideoMissing || playerErrorMessage != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.86f))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Playback unavailable",
+                            tint = FlareOrange,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Text(
+                            text = if (localVideoMissing) {
+                                "Video file not found on this phone"
+                            } else {
+                                "Unable to play video"
+                            },
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = if (localVideoMissing) {
+                                "Older local gallery uploads are erased if the app was uninstalled, and only play on the device that uploaded them."
+                            } else {
+                                playerErrorMessage.orEmpty()
+                            },
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (!localVideoMissing) {
+                                OutlinedButton(onClick = {
+                                    playerErrorMessage = null
+                                    exoPlayer.setMediaItem(MediaItem.fromUri(video.videoUri))
+                                    exoPlayer.prepare()
+                                    exoPlayer.playWhenReady = true
+                                }) {
+                                    Icon(Icons.Default.Refresh, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Retry", color = Color.White)
+                                }
+                            } else if (video.creatorId == viewModel.currentUserId) {
+                                Button(onClick = {
+                                    viewModel.deleteOwnVideo(video.id)
+                                    onBack()
+                                }) {
+                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Delete Broken")
+                                }
+                            }
+                            OutlinedButton(onClick = onBack) {
+                                Text("Back", color = Color.White)
+                            }
+                        }
+                    }
+                }
+            } else if (controlsVisible) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

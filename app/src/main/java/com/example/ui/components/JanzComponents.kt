@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -9,7 +10,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,10 +73,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -94,9 +93,30 @@ import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.FlareAmber
 import com.example.ui.theme.FlareOrange
 import com.google.firebase.Timestamp
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+fun isLocalFileMissing(uriString: String): Boolean {
+    val trimmed = uriString.trim()
+    if (trimmed.isBlank()) return false
+    return when {
+        trimmed.startsWith("file://") -> {
+            val path = Uri.parse(trimmed).path ?: return true
+            val file = File(path)
+            !file.exists() || file.length() <= 0L
+        }
+        trimmed.startsWith("/") -> {
+            val file = File(trimmed)
+            !file.exists() || file.length() <= 0L
+        }
+        else -> false
+    }
+}
+
+fun isMediaUriAvailable(uriString: String): Boolean =
+    uriString.isNotBlank() && !isLocalFileMissing(uriString)
 
 @Composable
 fun JanzFlareMark(
@@ -104,64 +124,36 @@ fun JanzFlareMark(
     size: Dp = 36.dp,
     animated: Boolean = false
 ) {
-    val transition = rememberInfiniteTransition(label = "flare")
-    val pulse by transition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse"
-    )
-    val scale = if (animated) pulse else 1f
-
-    Canvas(modifier = modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val center = Offset(w / 2f, h / 2f)
-
-        // Radiant glow halo
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    FlareOrange.copy(alpha = 0.45f),
-                    ElectricViolet.copy(alpha = 0.2f),
-                    Color.Transparent
-                ),
-                center = center,
-                radius = (w * 0.52f) * scale
+    val scale = if (animated) {
+        val transition = rememberInfiniteTransition(label = "flare")
+        val pulse by transition.animateFloat(
+            initialValue = 0.96f,
+            targetValue = 1.05f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1600, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
             ),
-            radius = (w * 0.52f) * scale,
-            center = center
+            label = "pulse"
         )
+        pulse
+    } else 1f
 
-        // Flame + Play silhouette
-        val flamePath = Path().apply {
-            moveTo(w * 0.52f, h * 0.08f)
-            cubicTo(w * 0.80f, h * 0.30f, w * 0.88f, h * 0.56f, w * 0.72f, h * 0.80f)
-            cubicTo(w * 0.62f, h * 0.93f, w * 0.36f, h * 0.94f, w * 0.26f, h * 0.78f)
-            cubicTo(w * 0.14f, h * 0.58f, w * 0.24f, h * 0.34f, w * 0.40f, h * 0.24f)
-            cubicTo(w * 0.38f, h * 0.36f, w * 0.44f, h * 0.42f, w * 0.52f, h * 0.08f)
-            close()
-        }
-        drawPath(
-            path = flamePath,
-            brush = Brush.linearGradient(
-                colors = listOf(FlareAmber, FlareOrange, ElectricViolet),
-                start = Offset(w * 0.3f, 0f),
-                end = Offset(w * 0.8f, h)
-            )
+    Box(
+        modifier = modifier
+            .size(size)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(percent = 22)),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.logo_janzflare),
+            contentDescription = "JanzFlare logo",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
         )
-
-        // Inner play triangle
-        val playPath = Path().apply {
-            moveTo(w * 0.43f, h * 0.43f)
-            lineTo(w * 0.66f, h * 0.57f)
-            lineTo(w * 0.43f, h * 0.71f)
-            close()
-        }
-        drawPath(path = playPath, color = Color.White)
     }
 }
 
@@ -354,8 +346,8 @@ fun JanzBrandHeader(modifier: Modifier = Modifier) {
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        JanzFlareMark(size = 32.dp, animated = false)
-        Spacer(Modifier.width(8.dp))
+        JanzFlareMark(size = 36.dp, animated = false)
+        Spacer(Modifier.width(10.dp))
         Column {
             Text(
                 text = "JanzFlare",
@@ -425,9 +417,13 @@ fun VideoThumbnailCard(
     creatorVerified: Boolean = video.creatorVerified,
     creatorAffiliatedBrand: String = "",
     creatorFounder: Boolean = false,
-    creatorJoinedAt: Timestamp? = null
+    creatorJoinedAt: Timestamp? = null,
+    creatorAvatarUrl: String = video.creatorAvatarUrl
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val thumbAvailable = remember(video.thumbnailUri) { isMediaUriAvailable(video.thumbnailUri) }
+    var thumbError by remember(video.thumbnailUri) { mutableStateOf(false) }
+    val localVideoMissing = remember(video.videoUri) { isLocalFileMissing(video.videoUri) }
 
     Card(
         modifier = modifier
@@ -448,11 +444,12 @@ fun VideoThumbnailCard(
                     .aspectRatio(16f / 9f)
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                if (video.thumbnailUri.isNotBlank()) {
+                if (thumbAvailable && !thumbError) {
                     AsyncImage(
                         model = video.thumbnailUri,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
+                        onError = { thumbError = true },
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -527,6 +524,23 @@ fun VideoThumbnailCard(
                     }
                 }
 
+                if (localVideoMissing) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.75f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "Local file unavailable",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFB4AB),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
                 // Duration & Language pill
                 Surface(
                     color = Color.Black.copy(alpha = 0.78f),
@@ -551,7 +565,7 @@ fun VideoThumbnailCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     CreatorAvatar(
-                        avatarUrl = video.creatorAvatarUrl,
+                        avatarUrl = creatorAvatarUrl,
                         name = video.creatorName,
                         size = 40.dp,
                         modifier = Modifier.clickable(onClick = onCreatorClick)
@@ -689,11 +703,15 @@ fun CreatorAvatar(
     size: Dp = 44.dp,
     modifier: Modifier = Modifier
 ) {
-    if (avatarUrl.isNotBlank()) {
+    val canLoad = remember(avatarUrl) { isMediaUriAvailable(avatarUrl) }
+    var imageFailed by remember(avatarUrl) { mutableStateOf(false) }
+
+    if (canLoad && !imageFailed) {
         AsyncImage(
             model = avatarUrl,
             contentDescription = "$name avatar",
             contentScale = ContentScale.Crop,
+            onError = { imageFailed = true },
             modifier = modifier
                 .size(size)
                 .clip(CircleShape)

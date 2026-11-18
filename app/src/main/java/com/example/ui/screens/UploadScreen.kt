@@ -136,6 +136,12 @@ fun UploadScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    Text(
+                        text = "Tip: Gallery videos stay in app storage on your phone (kept across updates, cleared if uninstalled). For playback on friends' phones too, use an HTTPS .mp4 link.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
