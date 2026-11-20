@@ -92,6 +92,7 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.CreatorProfile
 import com.example.data.model.JanzCatalog
+import com.example.data.model.PlatformSettings
 import com.example.data.model.Playlist
 import com.example.data.model.Video
 import com.example.ui.theme.ElectricViolet
@@ -1033,15 +1034,27 @@ fun PlaylistPickerDialog(
     )
 }
 
-fun shareVideoIntent(context: Context, video: Video) {
+fun shareVideoIntent(
+    context: Context,
+    video: Video,
+    platformSettings: PlatformSettings? = null
+) {
     val appDeepLink = "https://janzflare.app/watch/${video.id}"
     val directVideoUrl = CloudinaryUploader.buildCompatibleVideoUrl(video.videoUri)
         ?: video.videoUri.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    val adminAppLink = platformSettings?.shareAppUrl?.takeIf { it.startsWith("https://") }
+        ?: platformSettings?.updateUrl?.takeIf { it.startsWith("https://") }
+    val promoHeading = platformSettings?.sharePromoText?.takeIf { it.isNotBlank() }
+        ?: "Download JanzFlare App"
+
     val shareText = buildString {
         append("Watch \"${video.title}\" by ${video.creatorName} on JanzFlare!\n\n")
         append("Open in JanzFlare App:\n$appDeepLink")
         if (!directVideoUrl.isNullOrBlank()) {
-            append("\n\nWatch or Download Video (No app needed):\n$directVideoUrl")
+            append("\n\nWatch or Download Video (Direct Link):\n$directVideoUrl")
+        }
+        if (!adminAppLink.isNullOrBlank()) {
+            append("\n\n$promoHeading:\n$adminAppLink")
         }
         append("\n\nCategory: ${video.category} • ${video.language}")
     }

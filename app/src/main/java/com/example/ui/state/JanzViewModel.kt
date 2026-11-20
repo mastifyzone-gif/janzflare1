@@ -114,6 +114,11 @@ class JanzViewModel(
     private val _isOnline = MutableStateFlow(checkCurrentConnectivity())
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
+    // Lightweight client-side anti-spam rate limiters
+    private var lastCommentAtMs: Long = 0L
+    private var lastReportAtMs: Long = 0L
+    private var lastEngagementAtMs: Long = 0L
+
     private val connectivityManager =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -470,6 +475,9 @@ class JanzViewModel(
     }
 
     fun toggleLike(video: Video) {
+        val now = System.currentTimeMillis()
+        if (now - lastEngagementAtMs < 350L) return
+        lastEngagementAtMs = now
         val creator = (ownCreatorState.value as? UiState.Success)?.data
         val currentlyLiked = likedVideoIds.value.contains(video.id)
         viewModelScope.launch {
@@ -479,6 +487,9 @@ class JanzViewModel(
     }
 
     fun toggleFollow(creator: CreatorProfile) {
+        val now = System.currentTimeMillis()
+        if (now - lastEngagementAtMs < 350L) return
+        lastEngagementAtMs = now
         val selfCreator = (ownCreatorState.value as? UiState.Success)?.data
         val currentlyFollowing = followingList.value.any { it.creatorId == creator.creatorId }
         viewModelScope.launch {
@@ -509,6 +520,12 @@ class JanzViewModel(
     }
 
     fun addComment(video: Video, text: String, parentCommentId: String = "") {
+        val now = System.currentTimeMillis()
+        if (now - lastCommentAtMs < 2_000L) {
+            _snackbarMessage.value = "Please wait a moment before posting another comment."
+            return
+        }
+        lastCommentAtMs = now
         val selfCreator = (ownCreatorState.value as? UiState.Success)?.data
         viewModelScope.launch {
             repository.addComment(
@@ -573,9 +590,14 @@ class JanzViewModel(
         }
     }
 
-    fun recordWatch(video: Video, deltaWatchSec: Long, countNewView: Boolean) {
+    fun recordWatch(
+        video: Video,
+        deltaWatchSec: Long,
+        countNewView: Boolean,
+        countEngagedView: Boolean = false
+    ) {
         viewModelScope.launch {
-            repository.recordVideoViewAndWatchTime(video, deltaWatchSec, countNewView)
+            repository.recordVideoViewAndWatchTime(video, deltaWatchSec, countNewView, countEngagedView)
         }
     }
 
@@ -584,6 +606,7 @@ class JanzViewModel(
         username: String,
         bio: String,
         socialLink: String,
+        channelLinks: List<String> = emptyList(),
         preferredLanguage: String,
         interests: List<String>,
         avatarUri: Uri?,
@@ -598,6 +621,7 @@ class JanzViewModel(
                 username = username,
                 bio = bio,
                 socialLink = socialLink,
+                channelLinks = channelLinks,
                 preferredLanguage = preferredLanguage,
                 interests = interests,
                 avatarUri = avatarUri,
@@ -640,6 +664,12 @@ class JanzViewModel(
     }
 
     fun submitReport(targetType: String, targetId: String, targetVideoId: String, reason: String, details: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastReportAtMs < 5_000L) {
+            _snackbarMessage.value = "Please wait a few seconds before submitting another report."
+            return
+        }
+        lastReportAtMs = now
         viewModelScope.launch {
             repository.submitReport(targetType, targetId, targetVideoId, reason, details)
                 .onSuccess { _snackbarMessage.value = "Report submitted for moderation review" }
@@ -713,10 +743,11 @@ class JanzViewModel(
         }
     }
 
-    fun adminUpdatePlatformSettings(disabledCategories: List<String>, bannerText: String, maintenanceNotice: String) {
+    fun adminUpdatePlatformSettings(settings: PlatformSettings) {
         viewModelScope.launch {
-            repository.adminUpdatePlatformSettings(disabledCategories, bannerText, maintenanceNotice)
-                .onSuccess { _snackbarMessage.value = "Platform settings saved" }
+            repository.adminUpdatePlatformSettings(settings)
+                .onSuccess { _snackbarMessage.value = "Platform settings saved & live!" }
+                .onFailure { err -> _snackbarMessage.value = err.localizedMessage ?: "Failed to save settings" }
         }
     }
 

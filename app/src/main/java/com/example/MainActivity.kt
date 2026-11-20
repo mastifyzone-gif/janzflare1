@@ -80,6 +80,7 @@ import androidx.navigation.navArgument
 import com.example.data.auth.authStateFlow
 import com.example.data.repository.JanzRepository
 import com.example.notifications.JanzNotificationHelper
+import com.example.ui.components.ForceUpdateDialog
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CreatorDashboardScreen
@@ -261,6 +262,7 @@ private fun AuthenticatedJanzApp(
     }
 
     val userAccountState by viewModel.userAccountState.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
     val themeMode = (userAccountState as? UiState.Success)?.data?.themeMode ?: "dark"
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -521,6 +523,8 @@ private fun AuthenticatedJanzApp(
                 }
             }
         }
+
+        ForceUpdateDialog(settings = platformSettings)
     }
 }
 

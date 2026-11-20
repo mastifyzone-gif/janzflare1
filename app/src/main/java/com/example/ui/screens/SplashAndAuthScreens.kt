@@ -45,9 +45,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
 import com.example.data.auth.attemptAutoSignIn
 import com.example.data.auth.onGoogleSignInClicked
 import com.example.ui.components.JanzFlareMark
+import com.example.ui.components.LegalPoliciesDialog
+import com.example.ui.components.LegalPolicyTab
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.FlareOrange
 import com.example.ui.theme.MidnightNavy
@@ -136,6 +140,7 @@ fun AuthScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var openPolicyTab by remember { mutableStateOf<LegalPolicyTab?>(null) }
 
     LaunchedEffect(Unit) {
         attemptAutoSignIn(
@@ -279,7 +284,49 @@ fun AuthScreen(
                     color = Color.White.copy(alpha = 0.58f),
                     textAlign = TextAlign.Center
                 )
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Privacy Policy",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = FlareOrange,
+                        modifier = Modifier
+                            .clickable { openPolicyTab = LegalPolicyTab.PRIVACY }
+                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                            .testTag("auth_privacy_policy_link")
+                    )
+                    Text("•", color = Color.White.copy(alpha = 0.45f))
+                    Text(
+                        text = "Terms",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = FlareOrange,
+                        modifier = Modifier
+                            .clickable { openPolicyTab = LegalPolicyTab.TERMS }
+                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                            .testTag("auth_terms_link")
+                    )
+                    Text("•", color = Color.White.copy(alpha = 0.45f))
+                    Text(
+                        text = "Cookies",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = FlareOrange,
+                        modifier = Modifier
+                            .clickable { openPolicyTab = LegalPolicyTab.COOKIES }
+                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                            .testTag("auth_cookies_link")
+                    )
+                }
             }
         }
+    }
+
+    openPolicyTab?.let { tab ->
+        LegalPoliciesDialog(
+            initialTab = tab,
+            onDismiss = { openPolicyTab = null }
+        )
     }
 }

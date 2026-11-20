@@ -310,3 +310,232 @@ test("Founder bootstrap, admin affiliation control, and subscriber bell toggle",
     founderDb.collection("creators").doc(ADMIN_UID).collection("subscribers").get()
   );
 });
+
+test("Hardened anti-tamper counters, engaged views, HTTPS-only URLs, and channelLinks", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  await assertSucceeds(aliceDb.collection("creators").doc(ALICE_UID).set(validCreatorPayload(ALICE_UID)));
+  await assertSucceeds(bobDb.collection("creators").doc(BOB_UID).set(validCreatorPayload(BOB_UID)));
+
+  // Non-HTTPS videoUri is rejected
+  await assertFails(
+    aliceDb.collection("videos").doc("vid_bad_url").set({
+      ...validVideoPayload(ALICE_UID),
+      videoUri: "http://insecure.example.com/v.mp4",
+    })
+  );
+  await assertFails(
+    aliceDb.collection("videos").doc("vid_js_url").set({
+      ...validVideoPayload(ALICE_UID),
+      videoUri: "javascript:alert(1)",
+    })
+  );
+
+  // Valid HTTPS video with engagedViewsCount = 0 succeeds
+  await assertSucceeds(
+    aliceDb.collection("videos").doc("vid_secure").set({
+      ...validVideoPayload(ALICE_UID),
+      engagedViewsCount: 0,
+    })
+  );
+
+  // Bounded view +1, engagedView +1, watchTime +10 succeeds
+  await assertSucceeds(
+    bobDb.collection("videos").doc("vid_secure").update({
+      viewsCount: 1,
+      engagedViewsCount: 1,
+      watchTimeTotalSec: 10,
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Bounded creator stats increment succeeds
+  await assertSucceeds(
+    bobDb.collection("creators").doc(ALICE_UID).update({
+      totalViews: 1,
+      totalEngagedViews: 1,
+      totalWatchTimeSec: 10,
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Fake inflated counter jumps MUST fail
+  await assertFails(
+    bobDb.collection("videos").doc("vid_secure").update({
+      viewsCount: 50,
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    bobDb.collection("videos").doc("vid_secure").update({
+      watchTimeTotalSec: 500,
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    bobDb.collection("videos").doc("vid_secure").update({
+      likesCount: 10,
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+
+  // Creator channelLinks (max 5) succeeds for owner, fails for peer or >5 links
+  await assertSucceeds(
+    aliceDb.collection("creators").doc(ALICE_UID).update({
+      channelLinks: ["Telegram|https://t.me/janzflare", "Instagram|https://instagram.com/janzflare"],
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    bobDb.collection("creators").doc(ALICE_UID).update({
+      channelLinks: ["Hack|https://evil.example.com"],
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("creators").doc(ALICE_UID).update({
+      channelLinks: ["1|https://a.com", "2|https://b.com", "3|https://c.com", "4|https://d.com", "5|https://e.com", "6|https://f.com"],
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+});
+
+test("Banned creator is blocked server-side from posting videos, comments, or reports", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, {
+    email: "mdayubjanj@gmail.com",
+    email_verified: true,
+  }).firestore();
+
+  await assertSucceeds(aliceDb.collection("creators").doc(ALICE_UID).set(validCreatorPayload(ALICE_UID)));
+  await assertSucceeds(bobDb.collection("creators").doc(BOB_UID).set(validCreatorPayload(BOB_UID)));
+  await assertSucceeds(aliceDb.collection("videos").doc("vid_a").set(validVideoPayload(ALICE_UID)));
+
+  // Admin bans Bob
+  await assertSucceeds(
+    adminDb.collection("creators").doc(BOB_UID).update({
+      accountStatus: "banned",
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+
+  // Banned Bob cannot upload videos, comment, or submit reports
+  await assertFails(bobDb.collection("videos").doc("vid_banned").set(validVideoPayload(BOB_UID)));
+  await assertFails(
+    bobDb.collection("videos").doc("vid_a").collection("comments").doc("c_banned").set({
+      videoId: "vid_a",
+      authorId: BOB_UID,
+      authorName: "Bob",
+      authorAvatarUrl: "",
+      text: "Spam from banned account",
+      parentCommentId: "",
+      likesCount: 0,
+      pinned: false,
+      createdAt: new Date(Date.now() - 200),
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+  await assertFails(
+    bobDb.collection("reports").doc("rep_banned").set({
+      reporterId: BOB_UID,
+      targetType: "video",
+      targetId: "vid_a",
+      targetVideoId: "vid_a",
+      reason: "spam",
+      details: "Abuse report",
+      status: "open",
+      createdAt: new Date(Date.now() - 200),
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+});
+
+test("Admin PlatformSettings update/share/ads config and server-side monetization eligibility check", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, {
+    email: "mdayubjanj@gmail.com",
+    email_verified: true,
+  }).firestore();
+
+  const validSettings = {
+    disabledCategories: [],
+    featuredBannerText: "Welcome to JanzFlare",
+    maintenanceNotice: "",
+    latestVersionCode: 2,
+    latestVersionName: "1.1.0",
+    updateUrl: "https://t.me/janzflare_updates",
+    updateNotes: "New In-Video Ads, Security & 3-tier Views!",
+    forceUpdate: false,
+    shareAppUrl: "https://t.me/janzflare_updates",
+    sharePromoText: "Download JanzFlare App:",
+    adsEnabled: true,
+    adPreRollEnabled: true,
+    adMidRollEnabled: true,
+    adPostRollEnabled: true,
+    adSkipAfterSec: 10,
+    adDurationSec: 15,
+    adTitle: "JanzFlare Pro",
+    adDescription: "Boost your reach on JanzFlare!",
+    adMediaUrl: "https://example.com/ad-banner.jpg",
+    adClickUrl: "https://t.me/janzflare_updates",
+    updatedAt: new Date(Date.now() - 200),
+  };
+
+  // Non-admin cannot update platformSettings
+  await assertFails(aliceDb.collection("platformSettings").doc("config").set(validSettings));
+
+  // Admin succeeds with valid HTTPS URLs
+  await assertSucceeds(adminDb.collection("platformSettings").doc("config").set(validSettings));
+
+  // Admin fails if updateUrl is non-HTTPS
+  await assertFails(
+    adminDb.collection("platformSettings").doc("config").set({
+      ...validSettings,
+      updateUrl: "http://insecure.link/app.apk",
+    })
+  );
+
+  // Alice with 0 followers cannot spoof monetization request
+  await assertSucceeds(aliceDb.collection("creators").doc(ALICE_UID).set(validCreatorPayload(ALICE_UID)));
+  const now = new Date(Date.now() - 200);
+  await assertFails(
+    aliceDb.collection("monetizationRequests").doc(ALICE_UID).set({
+      creatorId: ALICE_UID,
+      displayName: "Alice Sharma",
+      username: "alice_janz",
+      followersCount: 600,
+      watchTimeHours: 1200,
+      shortsEngagementViews: 0,
+      payoutMethod: "UPI",
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Seed eligible creator stats bypassing rules, then Alice's monetization request succeeds
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("creators").doc(ALICE_UID).update({
+      followersCount: 600,
+      totalEngagedViews: 120000,
+    });
+  });
+
+  await assertSucceeds(
+    aliceDb.collection("monetizationRequests").doc(ALICE_UID).set({
+      creatorId: ALICE_UID,
+      displayName: "Alice Sharma",
+      username: "alice_janz",
+      followersCount: 600,
+      watchTimeHours: 10,
+      shortsEngagementViews: 120000,
+      payoutMethod: "UPI",
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+});
+

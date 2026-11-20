@@ -114,7 +114,9 @@ import com.example.data.media.CloudinaryUploader
 import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
+import com.example.ui.components.AdPlacementSlot
 import com.example.ui.components.CreatorAvatar
+import com.example.ui.components.InVideoAdOverlay
 import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
@@ -152,6 +154,7 @@ fun VideoPlayerScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     val allVideos = remember(publicVideosState, myVideosState) {
         val pub = (publicVideosState as? UiState.Success)?.data.orEmpty()
@@ -198,6 +201,15 @@ fun VideoPlayerScreen(
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var showDescriptionExpanded by remember { mutableStateOf(false) }
 
+    // YouTube-style In-Video Ad slots (Pre-roll / Mid-roll / Post-roll)
+    var activeAdSlot by remember(videoId) { mutableStateOf<AdPlacementSlot?>(null) }
+    var preRollTriggered by remember(videoId) { mutableStateOf(false) }
+    var midRollTriggered by remember(videoId) { mutableStateOf(false) }
+    var postRollTriggered by remember(videoId) { mutableStateOf(false) }
+    val latestSettings = androidx.compose.runtime.rememberUpdatedState(platformSettings)
+    val latestAutoPlay = androidx.compose.runtime.rememberUpdatedState(autoPlayNext)
+    val latestUpNext = androidx.compose.runtime.rememberUpdatedState(upNextVideos)
+
     // Set active video for comment listener
     LaunchedEffect(videoId) {
         viewModel.setActiveWatchVideo(videoId)
@@ -241,16 +253,25 @@ fun VideoPlayerScreen(
         ExoPlayer.Builder(context, renderersFactory).build()
     }
 
-    LaunchedEffect(videoId, video?.videoUri, localVideoMissing) {
+    LaunchedEffect(videoId, video?.videoUri, localVideoMissing, platformSettings?.adsEnabled, platformSettings?.adPreRollEnabled) {
         val uri = video?.videoUri.orEmpty()
         activePlaybackUri = uri
         triedTranscodeFallback = false
         isPreparingFallback = false
         playerErrorMessage = null
         if (uri.isNotBlank() && !localVideoMissing) {
+            val shouldPlayPreRoll = !preRollTriggered &&
+                platformSettings?.adsEnabled == true &&
+                platformSettings?.adPreRollEnabled == true
             exoPlayer.setMediaItem(MediaItem.fromUri(uri))
             exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
+            if (shouldPlayPreRoll) {
+                preRollTriggered = true
+                activeAdSlot = AdPlacementSlot.PRE_ROLL
+                exoPlayer.playWhenReady = false
+            } else if (activeAdSlot == null) {
+                exoPlayer.playWhenReady = true
+            }
         } else {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
@@ -296,8 +317,14 @@ fun VideoPlayerScreen(
                 if (state == Player.STATE_READY) {
                     isPreparingFallback = false
                     playerErrorMessage = null
-                } else if (state == Player.STATE_ENDED && autoPlayNext && upNextVideos.isNotEmpty()) {
-                    onSelectVideo(upNextVideos.first().id)
+                } else if (state == Player.STATE_ENDED) {
+                    val cfg = latestSettings.value
+                    if (cfg?.adsEnabled == true && cfg.adPostRollEnabled && !postRollTriggered) {
+                        postRollTriggered = true
+                        activeAdSlot = AdPlacementSlot.POST_ROLL
+                    } else if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
+                        onSelectVideo(latestUpNext.value.first().id)
+                    }
                 }
             }
         }
@@ -308,20 +335,34 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Poll position and record watch-time
+    // Poll position, trigger mid-roll ad at 50% (if video >= 30s), and record 3-tier views + watch-time
     LaunchedEffect(exoPlayer, video?.id) {
-        var countedInitialView = false
+        var countedPublicView = false
+        var countedEngagedView = false
         var accumulatedSec = 0L
         while (true) {
             currentPosMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(0L)
-            if (exoPlayer.isPlaying && video != null) {
-                accumulatedSec += 1L
-                if (!countedInitialView) {
-                    countedInitialView = true
-                    viewModel.recordWatch(video, deltaWatchSec = 1L, countNewView = true)
-                } else if (accumulatedSec % 10L == 0L) {
-                    viewModel.recordWatch(video, deltaWatchSec = 10L, countNewView = false)
+            if (activeAdSlot == null && exoPlayer.isPlaying && video != null) {
+                // Mid-roll trigger halfway through videos >= 30s
+                val cfg = latestSettings.value
+                if (cfg?.adsEnabled == true && cfg.adMidRollEnabled && !midRollTriggered &&
+                    durationMs >= 30_000L && currentPosMs >= durationMs / 2L
+                ) {
+                    midRollTriggered = true
+                    exoPlayer.pause()
+                    activeAdSlot = AdPlacementSlot.MID_ROLL
+                } else {
+                    accumulatedSec += 1L
+                    if (!countedPublicView) {
+                        countedPublicView = true
+                        viewModel.recordWatch(video, deltaWatchSec = 1L, countNewView = true, countEngagedView = false)
+                    } else if (!countedEngagedView && accumulatedSec >= 10L) {
+                        countedEngagedView = true
+                        viewModel.recordWatch(video, deltaWatchSec = 9L, countNewView = false, countEngagedView = true)
+                    } else if (accumulatedSec > 10L && accumulatedSec % 10L == 0L) {
+                        viewModel.recordWatch(video, deltaWatchSec = 10L, countNewView = false, countEngagedView = false)
+                    }
                 }
             }
             delay(1000L)
@@ -411,7 +452,26 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
+            val currentAd = activeAdSlot
+            val cfgForAd = platformSettings
+            if (currentAd != null && cfgForAd != null) {
+                InVideoAdOverlay(
+                    placement = currentAd,
+                    settings = cfgForAd,
+                    onAdFinished = {
+                        val finishedSlot = activeAdSlot
+                        activeAdSlot = null
+                        if (finishedSlot == AdPlacementSlot.POST_ROLL) {
+                            if (autoPlayNext && upNextVideos.isNotEmpty()) {
+                                onSelectVideo(upNextVideos.first().id)
+                            }
+                        } else {
+                            exoPlayer.playWhenReady = true
+                            exoPlayer.play()
+                        }
+                    }
+                )
+            } else if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -814,7 +874,7 @@ fun VideoPlayerScreen(
                             label = { Text(formatCount(video.likesCount)) }
                         )
                         AssistChip(
-                            onClick = { shareVideoIntent(context, video) },
+                            onClick = { shareVideoIntent(context, video, platformSettings) },
                             leadingIcon = { Icon(Icons.Default.Share, null) },
                             label = { Text("Share") }
                         )

@@ -92,6 +92,7 @@ import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.FlareOrange
+import kotlinx.coroutines.delay
 
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,6 +112,7 @@ fun ShortsScreen(
     val following by viewModel.followingList.collectAsStateWithLifecycle()
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
     val followMap = remember(following) { following.associateBy { it.creatorId } }
@@ -227,13 +229,14 @@ fun ShortsScreen(
             isFollowing = isFollowing,
             notifyOnUpload = notifyOnUpload,
             isSelf = shortVideo.creatorId == viewModel.currentUserId,
-            onViewCounted = { viewModel.recordWatch(shortVideo, 2L, countNewView = true) },
+            onPublicViewCounted = { viewModel.recordWatch(shortVideo, 1L, countNewView = true, countEngagedView = false) },
+            onEngagedViewCounted = { viewModel.recordWatch(shortVideo, 3L, countNewView = false, countEngagedView = true) },
             onLikeClick = { viewModel.toggleLike(shortVideo) },
             onCommentClick = {
                 viewModel.setActiveWatchVideo(shortVideo.id)
                 commentsSheetVideo = shortVideo
             },
-            onShareClick = { shareVideoIntent(context, shortVideo) },
+            onShareClick = { shareVideoIntent(context, shortVideo, platformSettings) },
             onSaveClick = { viewModel.toggleSavedVideo(shortVideo) },
             onFollowClick = { viewModel.toggleFollow(resolvedCreator) },
             onToggleBell = { viewModel.toggleSubscriptionBell(resolvedCreator, notifyOnUpload) },
@@ -320,7 +323,8 @@ private fun ShortPlayerPage(
     isFollowing: Boolean,
     notifyOnUpload: Boolean,
     isSelf: Boolean,
-    onViewCounted: () -> Unit,
+    onPublicViewCounted: () -> Unit,
+    onEngagedViewCounted: () -> Unit,
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onShareClick: () -> Unit,
@@ -365,10 +369,23 @@ private fun ShortPlayerPage(
         }
     }
 
+    var countedPublic by remember(video.id) { mutableStateOf(false) }
+    var countedEngaged by remember(video.id) { mutableStateOf(false) }
+
     LaunchedEffect(isActive, pausedByUser, localVideoMissing) {
         if (isActive && !pausedByUser && !localVideoMissing) {
             exoPlayer.playWhenReady = true
-            onViewCounted()
+            if (!countedPublic) {
+                countedPublic = true
+                onPublicViewCounted()
+            }
+            if (!countedEngaged) {
+                delay(3_000L)
+                if (currentIsActive && !currentPausedByUser && !countedEngaged) {
+                    countedEngaged = true
+                    onEngagedViewCounted()
+                }
+            }
         } else {
             exoPlayer.playWhenReady = false
         }

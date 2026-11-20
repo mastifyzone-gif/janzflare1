@@ -70,6 +70,7 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.Video
 import com.example.domain.RecommendationEngine
+import com.example.ui.components.AppUpdateBanner
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.CreatorSpotlightCard
@@ -134,6 +135,7 @@ fun HomeScreen(
 
     var reportVideoTarget by remember { mutableStateOf<Video?>(null) }
     var playlistVideoId by remember { mutableStateOf<String?>(null) }
+    var updateBannerDismissed by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
@@ -226,6 +228,16 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
+                }
+
+                // Admin-controlled App Update Banner (Telegram / APK / Play Store)
+                item {
+                    AppUpdateBanner(
+                        settings = platformSettings,
+                        dismissed = updateBannerDismissed,
+                        onDismiss = { updateBannerDismissed = true },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
                 }
 
                 // Optional Admin Notice Banner
@@ -348,7 +360,7 @@ fun HomeScreen(
                                 onCreatorClick = { onOpenCreatorProfile(video.creatorId) },
                                 onLikeClick = { viewModel.toggleLike(video) },
                                 onCommentClick = { onOpenVideo(video.id) },
-                                onShareClick = { shareVideoIntent(context, video) },
+                                onShareClick = { shareVideoIntent(context, video, platformSettings) },
                                 onSaveClick = { viewModel.toggleSavedVideo(video) },
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
@@ -547,6 +559,7 @@ fun ExploreSearchScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var searchScope by remember { mutableStateOf("All") }
@@ -829,7 +842,7 @@ fun ExploreSearchScreen(
                             onCreatorClick = { onOpenCreatorProfile(video.creatorId) },
                             onLikeClick = { viewModel.toggleLike(video) },
                             onCommentClick = { onOpenVideo(video.id) },
-                            onShareClick = { shareVideoIntent(context, video) },
+                            onShareClick = { shareVideoIntent(context, video, platformSettings) },
                             onSaveClick = { viewModel.toggleSavedVideo(video) },
                             onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                             onAddToPlaylistClick = { playlistVideoId = video.id },

@@ -30,6 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarToday
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.MoreVert
@@ -113,6 +116,7 @@ import com.example.ui.components.formatDuration
 import com.example.ui.components.formatJoinDate
 import com.example.ui.components.isLocalFileMissing
 import com.example.ui.components.isMediaUriAvailable
+import com.example.ui.components.openExternalHttpsUrl
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
@@ -153,6 +157,7 @@ fun ProfileScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     val user = (userState as? UiState.Success)?.data
     val creatorVideos = remember(isOwnProfile, creatorId, publicVideosState, myVideosState) {
@@ -548,7 +553,7 @@ fun ProfileScreen(
                                 onCreatorClick = {},
                                 onLikeClick = { viewModel.toggleLike(video) },
                                 onCommentClick = { onOpenVideo(video.id) },
-                                onShareClick = { shareVideoIntent(context, video) },
+                                onShareClick = { shareVideoIntent(context, video, platformSettings) },
                                 onSaveClick = { viewModel.toggleSavedVideo(video) },
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
@@ -593,7 +598,7 @@ fun ProfileScreen(
                                 onCreatorClick = {},
                                 onLikeClick = { viewModel.toggleLike(video) },
                                 onCommentClick = { onOpenVideo(video.id) },
-                                onShareClick = { shareVideoIntent(context, video) },
+                                onShareClick = { shareVideoIntent(context, video, platformSettings) },
                                 onSaveClick = { viewModel.toggleSavedVideo(video) },
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
@@ -678,7 +683,7 @@ fun ProfileScreen(
                                 onCreatorClick = {},
                                 onLikeClick = { viewModel.toggleLike(video) },
                                 onCommentClick = { onOpenVideo(video.id) },
-                                onShareClick = { shareVideoIntent(context, video) },
+                                onShareClick = { shareVideoIntent(context, video, platformSettings) },
                                 onSaveClick = { viewModel.toggleSavedVideo(video) },
                                 onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
                                 onAddToPlaylistClick = { playlistVideoId = video.id },
@@ -734,15 +739,85 @@ fun ProfileScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
-                                if (!creator?.socialLink.isNullOrBlank()) {
+                                val parsedLinks = buildList {
+                                    creator?.channelLinks.orEmpty().forEach { entry ->
+                                        val parts = entry.split("|", limit = 2)
+                                        val label = parts.getOrNull(0)?.trim().orEmpty()
+                                        val url = parts.getOrNull(1)?.trim().orEmpty()
+                                        if (url.startsWith("https://")) {
+                                            add(label.ifBlank { "Link" } to url)
+                                        }
+                                    }
+                                    val legacy = creator?.socialLink?.trim().orEmpty()
+                                    if (legacy.isNotBlank()) {
+                                        val normalized = if (legacy.startsWith("https://", ignoreCase = true)) {
+                                            legacy
+                                        } else if (legacy.startsWith("http://", ignoreCase = true)) {
+                                            "https://" + legacy.removePrefix("http://")
+                                        } else {
+                                            "https://$legacy"
+                                        }
+                                        if (none { it.second.equals(normalized, ignoreCase = true) }) {
+                                            add("Website / Social" to normalized)
+                                        }
+                                    }
+                                }
+                                if (parsedLinks.isNotEmpty()) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
                                     Text(
-                                        "Social: ${creator!!.socialLink}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.primary
+                                        text = "Links",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
+                                    parsedLinks.forEach { (label, url) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { openExternalHttpsUrl(context, url) }
+                                                .testTag("channel_about_link_${label.lowercase().replace(" ", "_")}")
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Link,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = label,
+                                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = url.removePrefix("https://"),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                                    contentDescription = "Open link",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                                 Text(
-                                    "Total Watch Time: ${formatDuration(creator?.totalWatchTimeSec ?: 0L)}",
+                                    "Public Views: ${formatCount(creator?.totalViews ?: 0L)} • Total Watch Time: ${formatDuration(creator?.totalWatchTimeSec ?: 0L)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -761,12 +836,13 @@ fun ProfileScreen(
             preferredLanguage = user?.preferredLanguage ?: "Hindi",
             interests = user?.interests.orEmpty(),
             onDismiss = { showEditDialog = false },
-            onSave = { name, username, bio, social, lang, newInterests, avatarUri, coverUri, removeAvatar, removeCover ->
+            onSave = { name, username, bio, social, channelLinks, lang, newInterests, avatarUri, coverUri, removeAvatar, removeCover ->
                 viewModel.updateProfile(
                     displayName = name,
                     username = username,
                     bio = bio,
                     socialLink = social,
+                    channelLinks = channelLinks,
                     preferredLanguage = lang,
                     interests = newInterests,
                     avatarUri = avatarUri,
@@ -854,12 +930,15 @@ private fun EditProfileDialog(
     preferredLanguage: String,
     interests: List<String>,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String, String, List<String>, Uri?, Uri?, Boolean, Boolean) -> Unit
+    onSave: (String, String, String, String, List<String>, String, List<String>, Uri?, Uri?, Boolean, Boolean) -> Unit
 ) {
     var displayName by remember { mutableStateOf(creator.displayName) }
     var username by remember { mutableStateOf(creator.username) }
     var bio by remember { mutableStateOf(creator.bio) }
     var socialLink by remember { mutableStateOf(creator.socialLink) }
+    var channelLinks by remember { mutableStateOf(creator.channelLinks) }
+    var newLinkLabel by remember { mutableStateOf("") }
+    var newLinkUrl by remember { mutableStateOf("") }
     var selectedLang by remember { mutableStateOf(preferredLanguage) }
     var selectedInterests by remember { mutableStateOf(interests.toSet()) }
     var avatarUri by remember { mutableStateOf<Uri?>(null) }
@@ -1026,7 +1105,77 @@ private fun EditProfileDialog(
                 OutlinedTextField(value = displayName, onValueChange = { displayName = it.take(60) }, label = { Text("Display Name") })
                 OutlinedTextField(value = username, onValueChange = { username = it.take(30) }, label = { Text("Username") })
                 OutlinedTextField(value = bio, onValueChange = { bio = it.take(300) }, label = { Text("Bio") }, maxLines = 3)
-                OutlinedTextField(value = socialLink, onValueChange = { socialLink = it.take(200) }, label = { Text("Social Link") })
+                OutlinedTextField(value = socialLink, onValueChange = { socialLink = it.take(200) }, label = { Text("Primary Social Link (Optional)") })
+
+                // YouTube-style Channel About Links (up to 5)
+                Text("Channel About Links (${channelLinks.size}/5)", style = MaterialTheme.typography.labelLarge)
+                channelLinks.forEachIndexed { idx, raw ->
+                    val parts = raw.split("|", limit = 2)
+                    val label = parts.getOrNull(0).orEmpty()
+                    val url = parts.getOrNull(1).orEmpty()
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(
+                                onClick = { channelLinks = channelLinks.filterIndexed { i, _ -> i != idx } },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, "Remove link", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+                if (channelLinks.size < 5) {
+                    OutlinedTextField(
+                        value = newLinkLabel,
+                        onValueChange = { newLinkLabel = it.take(36) },
+                        label = { Text("Link Title (e.g. Telegram, Instagram)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newLinkUrl,
+                        onValueChange = { newLinkUrl = it.take(200) },
+                        label = { Text("Link URL (https://...)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val cleanUrl = newLinkUrl.trim()
+                            if (cleanUrl.isNotBlank()) {
+                                val normalized = if (cleanUrl.startsWith("https://", ignoreCase = true)) {
+                                    cleanUrl
+                                } else {
+                                    "https://${cleanUrl.removePrefix("http://")}"
+                                }
+                                val label = newLinkLabel.trim().ifBlank { "Link ${channelLinks.size + 1}" }
+                                channelLinks = (channelLinks + "$label|$normalized").take(5)
+                                newLinkLabel = ""
+                                newLinkUrl = ""
+                            }
+                        },
+                        enabled = newLinkUrl.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add Channel Link")
+                    }
+                }
+
                 Text("Preferred Language", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     JanzCatalog.languages.take(8).forEach { lang ->
@@ -1060,6 +1209,7 @@ private fun EditProfileDialog(
                         username,
                         bio,
                         socialLink,
+                        channelLinks,
                         selectedLang,
                         selectedInterests.toList(),
                         avatarUri,
@@ -1095,18 +1245,25 @@ fun CreatorDashboardScreen(
     val creator = (ownCreatorState as? UiState.Success)?.data
     val videos = (myVideosState as? UiState.Success)?.data.orEmpty()
 
-    val totalViews = videos.sumOf { it.viewsCount }
+    val totalViews = maxOf(creator?.totalViews ?: 0L, videos.sumOf { it.viewsCount })
+    val totalEngagedViews = maxOf(creator?.totalEngagedViews ?: 0L, videos.sumOf { it.engagedViewsCount })
     val totalLikes = videos.sumOf { it.likesCount }
     val totalComments = videos.sumOf { it.commentsCount }
     val totalWatchSec = maxOf(creator?.totalWatchTimeSec ?: 0L, videos.sumOf { it.watchTimeTotalSec })
     val watchHoursExact = totalWatchSec / 3600.0
     val watchHoursWhole = totalWatchSec / 3600L
-    val shortsEngagementViews = videos.filter { it.shortForm || it.category == "Shorts" }.sumOf { it.viewsCount }
+    val shortsEngagedViews = videos.filter { it.shortForm || it.category == "Shorts" }.sumOf { it.engagedViewsCount }
+    val shortsPublicViews = videos.filter { it.shortForm || it.category == "Shorts" }.sumOf { it.viewsCount }
+    // Use real engaged Shorts views for monetization (with fallback to legacy views if engaged not yet recorded)
+    val shortsEngagementViews = if (shortsEngagedViews > 0L) shortsEngagedViews else shortsPublicViews
     val subscribersCount = creator?.followersCount ?: 0L
 
     val engagementRate = if (totalViews > 0L) {
         String.format(Locale.US, "%.1f%%", ((totalLikes + totalComments) * 100.0) / totalViews)
     } else "0.0%"
+    val qualityWatchRatio = if (totalViews > 0L) {
+        String.format(Locale.US, "%.0f%%", (totalEngagedViews * 100.0 / totalViews).coerceAtMost(100.0))
+    } else "0%"
 
     val topVideos = remember(videos) { videos.sortedByDescending { it.viewsCount + it.likesCount * 2L } }
     var editingVideo by remember { mutableStateOf<Video?>(null) }
@@ -1161,18 +1318,27 @@ fun CreatorDashboardScreen(
                     }
                     item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Channel Analytics", style = MaterialTheme.typography.titleLarge)
+                        Text("YouTube-Style 3-Tier Views Analytics", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            text = "1) Public Views (shown to everyone) • 2) Engaged Views (valid for monetization: 3s+ Shorts / 10s+ Videos) • 3) Creator Quality Insights",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            MetricCard("Total Views", formatCount(totalViews), Modifier.weight(1f))
+                            MetricCard("Public Views", formatCount(totalViews), Modifier.weight(1f))
+                            MetricCard("Engaged Views", formatCount(totalEngagedViews), Modifier.weight(1f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            MetricCard("Quality Ratio", qualityWatchRatio, Modifier.weight(1f))
                             MetricCard("Subscribers", formatCount(subscribersCount), Modifier.weight(1f))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            MetricCard("Videos", videos.size.toString(), Modifier.weight(1f))
                             MetricCard("Watch Time", formatDuration(totalWatchSec), Modifier.weight(1f))
+                            MetricCard("Engagement Rate", engagementRate, Modifier.weight(1f))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            MetricCard("Engagement Rate", engagementRate, Modifier.weight(1f))
-                            MetricCard("Shorts Views", formatCount(shortsEngagementViews), Modifier.weight(1f))
+                            MetricCard("Shorts Engaged", formatCount(shortsEngagementViews), Modifier.weight(1f))
+                            MetricCard("Videos", videos.size.toString(), Modifier.weight(1f))
                         }
                     }
                 }
@@ -1256,7 +1422,7 @@ fun CreatorDashboardScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        "${video.visibility.uppercase()} • ${video.category} • ${formatCount(video.viewsCount)} views • ${formatCount(video.likesCount)} likes",
+                                        "${video.visibility.uppercase()} • ${formatCount(video.viewsCount)} public • ${formatCount(video.engagedViewsCount)} engaged • ${formatCount(video.likesCount)} likes",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

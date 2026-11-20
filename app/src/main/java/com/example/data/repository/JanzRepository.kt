@@ -288,15 +288,18 @@ class JanzRepository(
 
             val isFounder = user.isEmailVerified && user.email.equals(FOUNDER_EMAIL, ignoreCase = true)
 
+            val safeInitialAvatar = avatarUrl.takeIf { it.startsWith("https://") }.orEmpty()
+
             if (!creatorSnap.exists()) {
                 val creatorPayload = mapOf(
                     "creatorId" to uid,
                     "displayName" to displayName,
                     "username" to finalUsername,
                     "bio" to if (isFounder) FOUNDER_BIO else "Creating on JanzFlare — Your Talent. Your Voice. Your World.",
-                    "avatarUrl" to avatarUrl,
+                    "avatarUrl" to safeInitialAvatar,
                     "coverUrl" to "",
                     "socialLink" to "",
+                    "channelLinks" to emptyList<String>(),
                     "verified" to isFounder,
                     "founderAccount" to isFounder,
                     "affiliatedBrand" to if (isFounder) "JanzFlare" else "",
@@ -304,6 +307,7 @@ class JanzRepository(
                     "followersCount" to 0L,
                     "followingCount" to 0L,
                     "totalViews" to 0L,
+                    "totalEngagedViews" to 0L,
                     "totalVideos" to 0L,
                     "totalWatchTimeSec" to 0L,
                     "createdAt" to FieldValue.serverTimestamp(),
@@ -354,6 +358,7 @@ class JanzRepository(
         username: String,
         bio: String,
         socialLink: String,
+        channelLinks: List<String> = emptyList(),
         preferredLanguage: String,
         interests: List<String>,
         avatarUri: Uri?,
@@ -367,6 +372,25 @@ class JanzRepository(
             val cleanUsername = username.trim().lowercase().replace(Regex("[^a-z0-9_.]"), "").take(30)
             require(cleanDisplay.isNotEmpty()) { "Display name cannot be empty" }
             require(cleanUsername.length >= 3) { "Username must be at least 3 characters" }
+
+            val sanitizedChannelLinks = channelLinks
+                .mapNotNull { raw ->
+                    val parts = raw.split("|", limit = 2)
+                    val label = parts.getOrNull(0)?.trim()?.take(36).orEmpty()
+                    val urlRaw = parts.getOrNull(1)?.trim().orEmpty()
+                    if (urlRaw.isBlank()) return@mapNotNull null
+                    val normalizedUrl = if (urlRaw.startsWith("https://", ignoreCase = true)) {
+                        urlRaw
+                    } else if (urlRaw.startsWith("http://", ignoreCase = true)) {
+                        "https://" + urlRaw.removePrefix("http://")
+                    } else {
+                        "https://$urlRaw"
+                    }
+                    if (normalizedUrl.length > 220) return@mapNotNull null
+                    val finalLabel = label.ifBlank { Uri.parse(normalizedUrl).host ?: "Link" }
+                    "$finalLabel|$normalizedUrl"
+                }
+                .take(5)
 
             val useCloud = CloudinaryUploader.isConfigured()
             val uploadedAvatar = if (avatarUri != null) {
@@ -398,6 +422,7 @@ class JanzRepository(
                 "username" to cleanUsername,
                 "bio" to bio.trim().take(300),
                 "socialLink" to socialLink.trim().take(200),
+                "channelLinks" to sanitizedChannelLinks,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             when {
@@ -639,6 +664,7 @@ class JanzRepository(
                 "processingStatus" to "ready",
                 "durationSec" to meta.durationSec,
                 "viewsCount" to 0L,
+                "engagedViewsCount" to 0L,
                 "likesCount" to 0L,
                 "commentsCount" to 0L,
                 "savesCount" to 0L,
@@ -1046,9 +1072,15 @@ class JanzRepository(
         }
     }
 
-    suspend fun recordVideoViewAndWatchTime(video: Video, deltaWatchSec: Long, countNewView: Boolean): Result<Unit> {
+    suspend fun recordVideoViewAndWatchTime(
+        video: Video,
+        deltaWatchSec: Long,
+        countNewView: Boolean,
+        countEngagedView: Boolean = false
+    ): Result<Unit> {
         val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Not signed in"))
         return try {
+            val safeDelta = deltaWatchSec.coerceIn(0L, 15L)
             val historyRef = db.collection("users").document(uid).collection("watchHistory").document(video.id)
             val historySnap = historyRef.get().await()
             if (!historySnap.exists()) {
@@ -1059,30 +1091,34 @@ class JanzRepository(
                         "category" to video.category,
                         "language" to video.language,
                         "creatorId" to video.creatorId,
-                        "watchedSec" to deltaWatchSec.coerceAtLeast(0L),
+                        "watchedSec" to safeDelta,
                         "createdAt" to FieldValue.serverTimestamp(),
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
-            } else if (deltaWatchSec > 0L) {
+            } else if (safeDelta > 0L) {
                 historyRef.update(
                     mapOf(
-                        "watchedSec" to FieldValue.increment(deltaWatchSec),
+                        "watchedSec" to FieldValue.increment(safeDelta),
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
             }
 
-            if (countNewView || deltaWatchSec > 0L) {
+            if (countNewView || countEngagedView || safeDelta > 0L) {
                 val videoUpdates = mutableMapOf<String, Any>("updatedAt" to FieldValue.serverTimestamp())
                 val creatorUpdates = mutableMapOf<String, Any>("updatedAt" to FieldValue.serverTimestamp())
                 if (countNewView) {
                     videoUpdates["viewsCount"] = FieldValue.increment(1L)
                     creatorUpdates["totalViews"] = FieldValue.increment(1L)
                 }
-                if (deltaWatchSec > 0L) {
-                    videoUpdates["watchTimeTotalSec"] = FieldValue.increment(deltaWatchSec)
-                    creatorUpdates["totalWatchTimeSec"] = FieldValue.increment(deltaWatchSec)
+                if (countEngagedView) {
+                    videoUpdates["engagedViewsCount"] = FieldValue.increment(1L)
+                    creatorUpdates["totalEngagedViews"] = FieldValue.increment(1L)
+                }
+                if (safeDelta > 0L) {
+                    videoUpdates["watchTimeTotalSec"] = FieldValue.increment(safeDelta)
+                    creatorUpdates["totalWatchTimeSec"] = FieldValue.increment(safeDelta)
                 }
                 db.collection("videos").document(video.id).update(videoUpdates).await()
                 db.collection("creators").document(video.creatorId).update(creatorUpdates).await()
@@ -1245,6 +1281,11 @@ class JanzRepository(
             db.collection("creators").document(creatorId).update(
                 mapOf("accountStatus" to status, "updatedAt" to FieldValue.serverTimestamp())
             ).await()
+            runCatching {
+                db.collection("users").document(creatorId).update(
+                    mapOf("accountStatus" to status, "updatedAt" to FieldValue.serverTimestamp())
+                ).await()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -1292,17 +1333,44 @@ class JanzRepository(
         }
     }
 
-    suspend fun adminUpdatePlatformSettings(
-        disabledCategories: List<String>,
-        featuredBannerText: String,
-        maintenanceNotice: String
-    ): Result<Unit> {
+    private fun sanitizeHttpsOrEmpty(raw: String, maxLen: Int = 1000): String {
+        val trimmed = raw.trim().take(maxLen)
+        if (trimmed.isEmpty()) return ""
+        require(trimmed.startsWith("https://")) { "Only secure https:// links are allowed" }
+        return trimmed
+    }
+
+    suspend fun adminUpdatePlatformSettings(settings: PlatformSettings): Result<Unit> {
         return try {
+            val safeUpdateUrl = sanitizeHttpsOrEmpty(settings.updateUrl)
+            val safeShareAppUrl = sanitizeHttpsOrEmpty(settings.shareAppUrl)
+            val safeAdMediaUrl = sanitizeHttpsOrEmpty(settings.adMediaUrl)
+            val safeAdClickUrl = sanitizeHttpsOrEmpty(settings.adClickUrl)
+            val safeAdDuration = settings.adDurationSec.coerceIn(5L, 60L)
+            val safeAdSkipAfter = settings.adSkipAfterSec.coerceIn(0L, safeAdDuration.coerceAtMost(30L))
+
             db.collection("platformSettings").document("config").set(
                 mapOf(
-                    "disabledCategories" to disabledCategories.take(30),
-                    "featuredBannerText" to featuredBannerText.trim().take(200),
-                    "maintenanceNotice" to maintenanceNotice.trim().take(300),
+                    "disabledCategories" to settings.disabledCategories.take(30),
+                    "featuredBannerText" to settings.featuredBannerText.trim().take(200),
+                    "maintenanceNotice" to settings.maintenanceNotice.trim().take(300),
+                    "latestVersionCode" to settings.latestVersionCode.coerceIn(1L, 1_000_000L),
+                    "latestVersionName" to settings.latestVersionName.trim().take(30),
+                    "updateUrl" to safeUpdateUrl,
+                    "updateNotes" to settings.updateNotes.trim().take(500),
+                    "forceUpdate" to settings.forceUpdate,
+                    "shareAppUrl" to safeShareAppUrl,
+                    "sharePromoText" to settings.sharePromoText.trim().take(120),
+                    "adsEnabled" to settings.adsEnabled,
+                    "adPreRollEnabled" to settings.adPreRollEnabled,
+                    "adMidRollEnabled" to settings.adMidRollEnabled,
+                    "adPostRollEnabled" to settings.adPostRollEnabled,
+                    "adSkipAfterSec" to safeAdSkipAfter,
+                    "adDurationSec" to safeAdDuration,
+                    "adTitle" to settings.adTitle.trim().take(100),
+                    "adDescription" to settings.adDescription.trim().take(240),
+                    "adMediaUrl" to safeAdMediaUrl,
+                    "adClickUrl" to safeAdClickUrl,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()

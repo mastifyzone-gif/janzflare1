@@ -62,15 +62,29 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Cookie
+import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.HorizontalDivider
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.BuildConfig
 import com.example.data.auth.signOut
 import com.example.data.model.JanzCatalog
+import com.example.data.model.PlatformSettings
 import com.example.notifications.JanzNotificationHelper
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.LegalPoliciesDialog
+import com.example.ui.components.LegalPolicyTab
 import com.example.ui.components.VerifiedAffiliationBadges
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatRelativeDate
+import com.example.ui.components.isAppUpdateAvailable
+import com.example.ui.components.openExternalHttpsUrl
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.FlareOrange
@@ -224,11 +238,13 @@ fun SettingsPrivacyScreen(
     val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val userState by viewModel.userAccountState.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
     val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
     val user = (userState as? UiState.Success)?.data
     val currentTheme = user?.themeMode ?: "dark"
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var openPolicyTab by remember { mutableStateOf<LegalPolicyTab?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -316,19 +332,80 @@ fun SettingsPrivacyScreen(
                 }
             }
 
-            // Community Guidelines & Legal
+            // Legal, Privacy, Terms, Cookies & App Version
             item {
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Community Guidelines", style = MaterialTheme.typography.titleMedium)
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Legal, Policies & App Info", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "JanzFlare has zero tolerance for copyright infringement, spam, harassment, or unsafe content.",
+                            "JanzFlare follows Google Play safety policies with zero tolerance for copyright infringement, spam, or unsafe content.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openPolicyTab = LegalPolicyTab.PRIVACY }
+                                .padding(vertical = 8.dp)
+                                .testTag("settings_privacy_policy_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PrivacyTip, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Privacy Policy", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text("View", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openPolicyTab = LegalPolicyTab.TERMS }
+                                .padding(vertical = 8.dp)
+                                .testTag("settings_terms_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Gavel, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Terms of Service & Guidelines", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text("View", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openPolicyTab = LegalPolicyTab.COOKIES }
+                                .padding(vertical = 8.dp)
+                                .testTag("settings_cookies_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Cookie, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Cookie & Local Data Policy", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text("View", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "App Version: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (isAppUpdateAvailable(platformSettings)) {
+                                TextButton(onClick = {
+                                    platformSettings?.updateUrl?.let { openExternalHttpsUrl(context, it) }
+                                }) {
+                                    Icon(Icons.Default.SystemUpdate, null, tint = FlareOrange, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Update", color = FlareOrange)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -382,6 +459,13 @@ fun SettingsPrivacyScreen(
             }
         )
     }
+
+    openPolicyTab?.let { tab ->
+        LegalPoliciesDialog(
+            initialTab = tab,
+            onDismiss = { openPolicyTab = null }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -398,7 +482,7 @@ fun AdminDashboardScreen(
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Overview", "Users", "Videos", "Monetize", "Reports", "Categories")
+    val tabs = listOf("Overview", "Users", "Videos", "Monetize", "Reports", "Update & Share", "Ads", "Categories")
 
     if (!isAdmin) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -636,14 +720,300 @@ fun AdminDashboardScreen(
 
                 5 -> {
                     item {
+                        val currentCfg = platformSettings ?: PlatformSettings()
+                        var versionCodeInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.latestVersionCode.toString())
+                        }
+                        var versionNameInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.latestVersionName)
+                        }
+                        var updateUrlInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.updateUrl)
+                        }
+                        var updateNotesInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.updateNotes)
+                        }
+                        var forceUpdateToggle by remember(platformSettings) {
+                            mutableStateOf(currentCfg.forceUpdate)
+                        }
+                        var shareAppUrlInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.shareAppUrl)
+                        }
+                        var sharePromoInput by remember(platformSettings) {
+                            mutableStateOf(currentCfg.sharePromoText)
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.SystemUpdate, null, tint = FlareOrange)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("In-App Update Banner (Telegram / APK / Play)", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    Text(
+                                        "Current installed app build: ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME}). Set a higher Version Code + HTTPS Telegram/APK link to show update banner to all users.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = versionCodeInput,
+                                            onValueChange = { versionCodeInput = it.filter { ch -> ch.isDigit() }.take(7) },
+                                            label = { Text("Latest Version Code") },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        OutlinedTextField(
+                                            value = versionNameInput,
+                                            onValueChange = { versionNameInput = it.take(30) },
+                                            label = { Text("Version Name") },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = updateUrlInput,
+                                        onValueChange = { updateUrlInput = it.take(500) },
+                                        label = { Text("Telegram / Update Download URL (https://...)") },
+                                        placeholder = { Text("https://t.me/your_channel_or_apk_link") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = updateNotesInput,
+                                        onValueChange = { updateNotesInput = it.take(500) },
+                                        label = { Text("What's New / Update Message") },
+                                        maxLines = 3,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Force Update (Mandatory)", style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                "Blocks old app until user taps Download Update",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(checked = forceUpdateToggle, onCheckedChange = { forceUpdateToggle = it })
+                                    }
+                                }
+                            }
+
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Share, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("External Share App Link (Non-Play Store)", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    Text(
+                                        "Whenever any user shares a video or Short outside JanzFlare, this link is automatically attached so friends can download the app.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedTextField(
+                                        value = shareAppUrlInput,
+                                        onValueChange = { shareAppUrlInput = it.take(500) },
+                                        label = { Text("App Download / Telegram Link (https://...)") },
+                                        placeholder = { Text("https://t.me/JanzFlareOfficial") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = sharePromoInput,
+                                        onValueChange = { sharePromoInput = it.take(120) },
+                                        label = { Text("Share Call-to-Action Label") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    val parsedCode = versionCodeInput.toLongOrNull() ?: currentCfg.latestVersionCode
+                                    viewModel.adminUpdatePlatformSettings(
+                                        currentCfg.copy(
+                                            latestVersionCode = parsedCode,
+                                            latestVersionName = versionNameInput.ifBlank { "1.0.$parsedCode" },
+                                            updateUrl = updateUrlInput,
+                                            updateNotes = updateNotesInput,
+                                            forceUpdate = forceUpdateToggle,
+                                            shareAppUrl = shareAppUrlInput,
+                                            sharePromoText = sharePromoInput.ifBlank { "Download JanzFlare App" }
+                                        )
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("admin_save_update_share_button")
+                            ) {
+                                Text("Save Update & Share Settings")
+                            }
+                        }
+                    }
+                }
+
+                6 -> {
+                    item {
+                        val currentCfg = platformSettings ?: PlatformSettings()
+                        var adsEnabled by remember(platformSettings) { mutableStateOf(currentCfg.adsEnabled) }
+                        var preRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPreRollEnabled) }
+                        var midRoll by remember(platformSettings) { mutableStateOf(currentCfg.adMidRollEnabled) }
+                        var postRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPostRollEnabled) }
+                        var skipAfterSec by remember(platformSettings) { mutableStateOf(currentCfg.adSkipAfterSec) }
+                        var durationSec by remember(platformSettings) { mutableStateOf(currentCfg.adDurationSec) }
+                        var adTitle by remember(platformSettings) { mutableStateOf(currentCfg.adTitle) }
+                        var adDesc by remember(platformSettings) { mutableStateOf(currentCfg.adDescription) }
+                        var adMediaUrl by remember(platformSettings) { mutableStateOf(currentCfg.adMediaUrl) }
+                        var adClickUrl by remember(platformSettings) { mutableStateOf(currentCfg.adClickUrl) }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Campaign, null, tint = FlareOrange)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("YouTube-Style In-Video Ads Control", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Enable In-Video Ads", style = MaterialTheme.typography.titleSmall)
+                                        Switch(checked = adsEnabled, onCheckedChange = { adsEnabled = it })
+                                    }
+                                    HorizontalDivider()
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Pre-Roll Ad (Start of Video)")
+                                        Switch(checked = preRoll, onCheckedChange = { preRoll = it })
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Mid-Roll Ad (Middle of Videos 30s+)")
+                                        Switch(checked = midRoll, onCheckedChange = { midRoll = it })
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Post-Roll Ad (End of Video)")
+                                        Switch(checked = postRoll, onCheckedChange = { postRoll = it })
+                                    }
+                                    HorizontalDivider()
+                                    Text("Show Skip Button After:", style = MaterialTheme.typography.labelLarge)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(0L to "Instant", 5L to "5 sec", 10L to "10 sec", 15L to "15 sec").forEach { (sec, label) ->
+                                            FilterChip(
+                                                selected = skipAfterSec == sec,
+                                                onClick = { skipAfterSec = sec },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+                                    Text("Total Ad Duration:", style = MaterialTheme.typography.labelLarge)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(10L to "10s", 15L to "15s", 20L to "20s", 30L to "30s").forEach { (sec, label) ->
+                                            FilterChip(
+                                                selected = durationSec == sec,
+                                                onClick = { durationSec = sec },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = adTitle,
+                                        onValueChange = { adTitle = it.take(100) },
+                                        label = { Text("Sponsor / Ad Title") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = adDesc,
+                                        onValueChange = { adDesc = it.take(240) },
+                                        label = { Text("Sponsor Tagline / Description") },
+                                        maxLines = 2,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = adMediaUrl,
+                                        onValueChange = { adMediaUrl = it.take(500) },
+                                        label = { Text("Ad Banner Image URL (Optional https://...)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = adClickUrl,
+                                        onValueChange = { adClickUrl = it.take(500) },
+                                        label = { Text("Advertiser Click Link (Optional https://...)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.adminUpdatePlatformSettings(
+                                        currentCfg.copy(
+                                            adsEnabled = adsEnabled,
+                                            adPreRollEnabled = preRoll,
+                                            adMidRollEnabled = midRoll,
+                                            adPostRollEnabled = postRoll,
+                                            adSkipAfterSec = skipAfterSec,
+                                            adDurationSec = durationSec,
+                                            adTitle = adTitle,
+                                            adDescription = adDesc,
+                                            adMediaUrl = adMediaUrl,
+                                            adClickUrl = adClickUrl
+                                        )
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("admin_save_ads_button")
+                            ) {
+                                Text("Save Ads Configuration")
+                            }
+                        }
+                    }
+                }
+
+                7 -> {
+                    item {
+                        val currentCfg = platformSettings ?: PlatformSettings()
                         var bannerInput by remember(platformSettings) {
-                            mutableStateOf(platformSettings?.featuredBannerText.orEmpty())
+                            mutableStateOf(currentCfg.featuredBannerText)
                         }
                         var noticeInput by remember(platformSettings) {
-                            mutableStateOf(platformSettings?.maintenanceNotice.orEmpty())
+                            mutableStateOf(currentCfg.maintenanceNotice)
                         }
                         var disabledCats by remember(platformSettings) {
-                            mutableStateOf(platformSettings?.disabledCategories?.toSet().orEmpty())
+                            mutableStateOf(currentCfg.disabledCategories.toSet())
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -679,7 +1049,13 @@ fun AdminDashboardScreen(
                             }
                             Button(
                                 onClick = {
-                                    viewModel.adminUpdatePlatformSettings(disabledCats.toList(), bannerInput, noticeInput)
+                                    viewModel.adminUpdatePlatformSettings(
+                                        currentCfg.copy(
+                                            disabledCategories = disabledCats.toList(),
+                                            featuredBannerText = bannerInput,
+                                            maintenanceNotice = noticeInput
+                                        )
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
