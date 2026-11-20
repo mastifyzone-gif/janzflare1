@@ -187,11 +187,14 @@ fun AppUpdateBanner(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val installedCode = getInstalledVersionCode(context)
                 Text(
-                    text = "Installed: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                    text = "Installed: v${BuildConfig.VERSION_NAME} (Build $installedCode) → Latest: Build ${cfg.latestVersionCode}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = { if (resolvedUrl.isNotEmpty()) openExternalHttpsUrl(context, resolvedUrl) },
                     enabled = resolvedUrl.isNotEmpty(),
@@ -260,8 +263,9 @@ fun ForceUpdateDialog(
                         }
                     }
                 }
+                val installedCode = getInstalledVersionCode(context)
                 Text(
-                    text = "Your version: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                    text = "Your version: v${BuildConfig.VERSION_NAME} (Build $installedCode) • Latest: Build ${cfg.latestVersionCode}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

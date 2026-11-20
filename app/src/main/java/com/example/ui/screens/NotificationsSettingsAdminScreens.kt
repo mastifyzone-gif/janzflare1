@@ -400,7 +400,7 @@ fun SettingsPrivacyScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (isAppUpdateAvailable(platformSettings)) {
+                            if (isAppUpdateAvailable(platformSettings, context)) {
                                 TextButton(onClick = {
                                     platformSettings?.updateUrl?.let { openExternalHttpsUrl(context, it) }
                                 }) {

@@ -72,7 +72,8 @@ jobs:
         env:
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_UPLOAD_PRESET: ${{ secrets.CLOUDINARY_UPLOAD_PRESET }}
-        run: gradle assembleDebug -PappVersionCode=$((10 + ${{ github.run_number }})) -PappVersionName="1.${{ github.run_number }}" --no-daemon
+          ADMOB_APP_ID: ${{ secrets.ADMOB_APP_ID }}
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
