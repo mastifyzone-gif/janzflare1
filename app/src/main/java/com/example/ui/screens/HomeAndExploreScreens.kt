@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -71,6 +72,7 @@ import com.example.R
 import com.example.data.model.Video
 import com.example.domain.RecommendationEngine
 import com.example.ui.components.AdMobBannerSlot
+import com.example.ui.components.AdMobNativeFeedCard
 import com.example.ui.components.AppUpdateBanner
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.CreatorAvatar
@@ -218,7 +220,7 @@ fun HomeScreen(
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (!isOnline) {
@@ -361,28 +363,39 @@ fun HomeScreen(
                                 )
                             }
                         } else {
-                        items(homeFeed, key = { it.id }) { video ->
+                        val showInlineNativeAds = platformSettings?.adsEnabled == true && platformSettings?.adHomeFeedEnabled == true
+                        itemsIndexed(homeFeed, key = { _, v -> v.id }) { index, video ->
                             val videoCreator = creatorsById[video.creatorId]
-                            VideoThumbnailCard(
-                                video = video,
-                                isLiked = likedIds.contains(video.id),
-                                isSaved = user?.savedVideoIds?.contains(video.id) == true,
-                                onPlayClick = { onOpenVideo(video.id) },
-                                onCreatorClick = { onOpenCreatorProfile(video.creatorId) },
-                                onLikeClick = { viewModel.toggleLike(video) },
-                                onCommentClick = { onOpenVideo(video.id) },
-                                onShareClick = { shareVideoIntent(context, video, platformSettings) },
-                                onSaveClick = { viewModel.toggleSavedVideo(video) },
-                                onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
-                                onAddToPlaylistClick = { playlistVideoId = video.id },
-                                onReportClick = { reportVideoTarget = video },
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                creatorVerified = videoCreator?.verified ?: video.creatorVerified,
-                                creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
-                                creatorFounder = videoCreator?.founderAccount == true,
-                                creatorJoinedAt = videoCreator?.createdAt,
-                                creatorAvatarUrl = videoCreator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                VideoThumbnailCard(
+                                    video = video,
+                                    isLiked = likedIds.contains(video.id),
+                                    isSaved = user?.savedVideoIds?.contains(video.id) == true,
+                                    onPlayClick = { onOpenVideo(video.id) },
+                                    onCreatorClick = { onOpenCreatorProfile(video.creatorId) },
+                                    onLikeClick = { viewModel.toggleLike(video) },
+                                    onCommentClick = { onOpenVideo(video.id) },
+                                    onShareClick = { shareVideoIntent(context, video, platformSettings) },
+                                    onSaveClick = { viewModel.toggleSavedVideo(video) },
+                                    onWatchLaterClick = { viewModel.toggleWatchLater(video.id) },
+                                    onAddToPlaylistClick = { playlistVideoId = video.id },
+                                    onReportClick = { reportVideoTarget = video },
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    creatorVerified = videoCreator?.verified ?: video.creatorVerified,
+                                    creatorAffiliatedBrand = videoCreator?.affiliatedBrand.orEmpty(),
+                                    creatorFounder = videoCreator?.founderAccount == true,
+                                    creatorJoinedAt = videoCreator?.createdAt,
+                                    creatorAvatarUrl = videoCreator?.avatarUrl?.takeIf { it.isNotBlank() } ?: video.creatorAvatarUrl
+                                )
+                                // Clean in-feed Native Advanced Ad Card after every 4th video (never fullscreen!)
+                                if (showInlineNativeAds && (index + 1) % 4 == 0) {
+                                    AdMobNativeFeedCard(
+                                        settings = platformSettings,
+                                        slotKey = "home_feed_slot_${index / 4}",
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

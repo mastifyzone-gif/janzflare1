@@ -310,11 +310,14 @@ service cloud.firestore {
              (!('adClickUrl' in data) || isSafeHttpsOrEmpty(data.adClickUrl)) &&
              (!('admobTestMode' in data) || data.admobTestMode is bool) &&
              (!('admobBannerEnabled' in data) || data.admobBannerEnabled is bool) &&
+             (!('adHomeFeedEnabled' in data) || data.adHomeFeedEnabled is bool) &&
+             (!('adShortsNativeEnabled' in data) || data.adShortsNativeEnabled is bool) &&
              (!('admobBannerUnitId' in data) || isValidAdMobUnitIdOrEmpty(data.admobBannerUnitId)) &&
+             (!('admobNativeUnitId' in data) || isValidAdMobUnitIdOrEmpty(data.admobNativeUnitId)) &&
              (!('admobVideoInterstitialUnitId' in data) || isValidAdMobUnitIdOrEmpty(data.admobVideoInterstitialUnitId)) &&
              (!('admobShortsInterstitialUnitId' in data) || isValidAdMobUnitIdOrEmpty(data.admobShortsInterstitialUnitId)) &&
              (!('admobShortsInterval' in data) || (data.admobShortsInterval is int && data.admobShortsInterval >= 2 && data.admobShortsInterval <= 30)) &&
-             (!('admobCooldownSec' in data) || (data.admobCooldownSec is int && data.admobCooldownSec >= 30 && data.admobCooldownSec <= 1800)) &&
+             (!('admobCooldownSec' in data) || (data.admobCooldownSec is int && data.admobCooldownSec >= 0 && data.admobCooldownSec <= 1800)) &&
              isValidTimestamp(data.updatedAt);
     }
 
@@ -662,7 +665,8 @@ service cloud.firestore {
                                  'shareAppUrl', 'sharePromoText',
                                  'adsEnabled', 'adPreRollEnabled', 'adMidRollEnabled', 'adPostRollEnabled',
                                  'adSkipAfterSec', 'adDurationSec', 'adTitle', 'adDescription', 'adMediaUrl', 'adClickUrl',
-                                 'admobTestMode', 'admobBannerEnabled', 'admobBannerUnitId',
+                                 'admobTestMode', 'admobBannerEnabled', 'adHomeFeedEnabled', 'adShortsNativeEnabled',
+                                 'admobBannerUnitId', 'admobNativeUnitId',
                                  'admobVideoInterstitialUnitId', 'admobShortsInterstitialUnitId',
                                  'admobShortsInterval', 'admobCooldownSec',
                                  'updatedAt'

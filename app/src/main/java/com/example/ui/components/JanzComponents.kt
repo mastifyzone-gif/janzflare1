@@ -1146,6 +1146,11 @@ fun formatJoinDate(ts: Timestamp?): String {
     return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
 }
 
+fun formatUploadDate(ts: Timestamp?): String {
+    val millis = ts?.toDate()?.time ?: return "Recently uploaded"
+    return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+}
+
 @Composable
 fun ShimmerBox(
     modifier: Modifier = Modifier,

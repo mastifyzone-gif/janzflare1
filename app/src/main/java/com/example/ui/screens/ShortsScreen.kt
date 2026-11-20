@@ -79,9 +79,14 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.data.media.CloudinaryUploader
 import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
+import com.example.ui.components.AdMobShortsNativePage
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.JanzAdMobManager
@@ -95,6 +100,16 @@ import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.FlareOrange
 import kotlinx.coroutines.delay
+
+private sealed interface ShortsPagerItem {
+    val key: String
+    data class ShortVideo(val video: Video) : ShortsPagerItem {
+        override val key: String = "short_${video.id}"
+    }
+    data class NativeAdPage(val slotId: String) : ShortsPagerItem {
+        override val key: String = "ad_$slotId"
+    }
+}
 
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,33 +199,43 @@ fun ShortsScreen(
         return
     }
 
-    val pagerState = rememberPagerState(pageCount = { shortsFeed.size })
+    // Hide top status bar (battery %, clock) while watching Shorts and restore immediately on leave
     val activity = context as? Activity
-    var swipedShortsCount by remember { mutableStateOf(0) }
-    var lastTrackedPage by remember { mutableStateOf(0) }
-
-    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobShortsInterstitialUnitId) {
-        if (platformSettings?.adsEnabled == true) {
-            JanzAdMobManager.preloadShortsInterstitial(context, platformSettings)
+    DisposableEffect(activity) {
+        activity?.let { act ->
+            val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
         }
-    }
-
-    LaunchedEffect(pagerState.currentPage, platformSettings) {
-        val page = pagerState.currentPage
-        if (page != lastTrackedPage) {
-            lastTrackedPage = page
-            swipedShortsCount += 1
-            val interval = (platformSettings?.admobShortsInterval ?: 6L).coerceIn(2L, 30L).toInt()
-            if (platformSettings?.adsEnabled == true && swipedShortsCount > 0 && swipedShortsCount % interval == 0) {
-                JanzAdMobManager.showShortsInterstitialIfReady(activity, platformSettings)
+        onDispose {
+            activity?.let { act ->
+                WindowCompat.getInsetsController(act.window, act.window.decorView)
+                    .show(WindowInsetsCompat.Type.statusBars())
             }
         }
     }
 
-    LaunchedEffect(focusedShortId, shortsFeed) {
+    val pagerItems = remember(shortsFeed, platformSettings) {
+        val showShortsAds = platformSettings?.adsEnabled == true &&
+            platformSettings?.adShortsNativeEnabled == true &&
+            JanzAdMobManager.resolveNativeUnitId(platformSettings) != null
+        val interval = (platformSettings?.admobShortsInterval ?: 5L).coerceIn(2L, 30L).toInt()
+        buildList {
+            shortsFeed.forEachIndexed { idx, shortVideo ->
+                add(ShortsPagerItem.ShortVideo(shortVideo))
+                if (showShortsAds && (idx + 1) % interval == 0 && idx < shortsFeed.lastIndex) {
+                    add(ShortsPagerItem.NativeAdPage("slot_${idx / interval}"))
+                }
+            }
+        }
+    }
+
+    val pagerState = rememberPagerState(pageCount = { pagerItems.size })
+
+    LaunchedEffect(focusedShortId, pagerItems) {
         val targetId = focusedShortId
-        if (!targetId.isNullOrBlank() && shortsFeed.isNotEmpty()) {
-            val idx = shortsFeed.indexOfFirst { it.id == targetId }
+        if (!targetId.isNullOrBlank() && pagerItems.isNotEmpty()) {
+            val idx = pagerItems.indexOfFirst { it is ShortsPagerItem.ShortVideo && it.video.id == targetId }
             if (idx >= 0) {
                 pagerState.scrollToPage(idx)
             }
@@ -220,52 +245,63 @@ fun ShortsScreen(
 
     VerticalPager(
         state = pagerState,
-        key = { page -> shortsFeed[page].id },
+        key = { page -> pagerItems[page].key },
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) { page ->
-        val shortVideo = shortsFeed[page]
         val isActive = pagerState.currentPage == page
-        val creator = creators.firstOrNull { it.creatorId == shortVideo.creatorId }
-        val isLiked = likedIds.contains(shortVideo.id)
-        val isSaved = user?.savedVideoIds?.contains(shortVideo.id) == true
-        val followRecord = followMap[shortVideo.creatorId]
-        val isFollowing = followRecord != null
-        val notifyOnUpload = followRecord?.notifyOnUpload ?: true
+        when (val item = pagerItems[page]) {
+            is ShortsPagerItem.NativeAdPage -> {
+                AdMobShortsNativePage(
+                    settings = platformSettings,
+                    pageKey = item.slotId,
+                    isActive = isActive
+                )
+            }
+            is ShortsPagerItem.ShortVideo -> {
+                val shortVideo = item.video
+                val creator = creators.firstOrNull { it.creatorId == shortVideo.creatorId }
+                val isLiked = likedIds.contains(shortVideo.id)
+                val isSaved = user?.savedVideoIds?.contains(shortVideo.id) == true
+                val followRecord = followMap[shortVideo.creatorId]
+                val isFollowing = followRecord != null
+                val notifyOnUpload = followRecord?.notifyOnUpload ?: true
 
-        val resolvedCreator = creator ?: CreatorProfile(
-            creatorId = shortVideo.creatorId,
-            displayName = shortVideo.creatorName.ifBlank { "Creator" },
-            username = shortVideo.creatorUsername.ifBlank { "creator" },
-            avatarUrl = shortVideo.creatorAvatarUrl,
-            verified = shortVideo.creatorVerified
-        )
+                val resolvedCreator = creator ?: CreatorProfile(
+                    creatorId = shortVideo.creatorId,
+                    displayName = shortVideo.creatorName.ifBlank { "Creator" },
+                    username = shortVideo.creatorUsername.ifBlank { "creator" },
+                    avatarUrl = shortVideo.creatorAvatarUrl,
+                    verified = shortVideo.creatorVerified
+                )
 
-        ShortPlayerPage(
-            video = shortVideo,
-            creator = creator,
-            isActive = isActive,
-            isOnline = isOnline,
-            isLiked = isLiked,
-            isSaved = isSaved,
-            isFollowing = isFollowing,
-            notifyOnUpload = notifyOnUpload,
-            isSelf = shortVideo.creatorId == viewModel.currentUserId,
-            onPublicViewCounted = { viewModel.recordWatch(shortVideo, 1L, countNewView = true, countEngagedView = false) },
-            onEngagedViewCounted = { viewModel.recordWatch(shortVideo, 3L, countNewView = false, countEngagedView = true) },
-            onLikeClick = { viewModel.toggleLike(shortVideo) },
-            onCommentClick = {
-                viewModel.setActiveWatchVideo(shortVideo.id)
-                commentsSheetVideo = shortVideo
-            },
-            onShareClick = { shareVideoIntent(context, shortVideo, platformSettings) },
-            onSaveClick = { viewModel.toggleSavedVideo(shortVideo) },
-            onFollowClick = { viewModel.toggleFollow(resolvedCreator) },
-            onToggleBell = { viewModel.toggleSubscriptionBell(resolvedCreator, notifyOnUpload) },
-            onCreatorClick = { onOpenCreatorProfile(shortVideo.creatorId) },
-            onReportClick = { reportVideoTarget = shortVideo }
-        )
+                ShortPlayerPage(
+                    video = shortVideo,
+                    creator = creator,
+                    isActive = isActive,
+                    isOnline = isOnline,
+                    isLiked = isLiked,
+                    isSaved = isSaved,
+                    isFollowing = isFollowing,
+                    notifyOnUpload = notifyOnUpload,
+                    isSelf = shortVideo.creatorId == viewModel.currentUserId,
+                    onPublicViewCounted = { viewModel.recordWatch(shortVideo, 1L, countNewView = true, countEngagedView = false) },
+                    onEngagedViewCounted = { viewModel.recordWatch(shortVideo, 3L, countNewView = false, countEngagedView = true) },
+                    onLikeClick = { viewModel.toggleLike(shortVideo) },
+                    onCommentClick = {
+                        viewModel.setActiveWatchVideo(shortVideo.id)
+                        commentsSheetVideo = shortVideo
+                    },
+                    onShareClick = { shareVideoIntent(context, shortVideo, platformSettings) },
+                    onSaveClick = { viewModel.toggleSavedVideo(shortVideo) },
+                    onFollowClick = { viewModel.toggleFollow(resolvedCreator) },
+                    onToggleBell = { viewModel.toggleSubscriptionBell(resolvedCreator, notifyOnUpload) },
+                    onCreatorClick = { onOpenCreatorProfile(shortVideo.creatorId) },
+                    onReportClick = { reportVideoTarget = shortVideo }
+                )
+            }
+        }
     }
 
     commentsSheetVideo?.let { targetVideo ->
@@ -563,11 +599,12 @@ private fun ShortPlayerPage(
                 )
         )
 
-        // Right Vertical Actions Rail
+        // Right Vertical Actions Rail (adapts safely to phone navigation bars)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 28.dp),
+                .navigationBarsPadding()
+                .padding(end = 12.dp, bottom = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -604,11 +641,12 @@ private fun ShortPlayerPage(
             }
         }
 
-        // Bottom Creator Info & Caption
+        // Bottom Creator Info & Caption (adapts safely to phone navigation bars)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, end = 72.dp, bottom = 28.dp)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 72.dp, bottom = 20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CreatorAvatar(

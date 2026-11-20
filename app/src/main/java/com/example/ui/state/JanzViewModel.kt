@@ -142,6 +142,19 @@ class JanzViewModel(
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    private fun friendlyPublicError(error: Throwable, fallback: String): String {
+        val raw = error.localizedMessage.orEmpty()
+        val isInternalTechError = raw.isBlank() ||
+            error is FirebaseFirestoreException ||
+            raw.contains("firestore", ignoreCase = true) ||
+            raw.contains("firebase", ignoreCase = true) ||
+            raw.contains("permission_denied", ignoreCase = true) ||
+            raw.contains("database", ignoreCase = true) ||
+            raw.contains("grpc", ignoreCase = true) ||
+            raw.contains("unavailable", ignoreCase = true)
+        return if (isInternalTechError) fallback else raw
+    }
+
     private fun <T> Flow<T>.toUiState(defaultError: String): StateFlow<UiState<T>> =
         this.map<T, UiState<T>> { UiState.Success(it) }
             .catch { error ->
@@ -151,7 +164,7 @@ class JanzViewModel(
                 if (firestoreError == null && error is CancellationException) throw error
                 val root = firestoreError ?: error
                 Log.w("JanzVM", defaultError, root)
-                emit(UiState.Error(root.message ?: defaultError))
+                emit(UiState.Error(friendlyPublicError(root, defaultError)))
             }
             .stateIn(
                 scope = viewModelScope,
@@ -393,7 +406,7 @@ class JanzViewModel(
             if (elapsed < 600L) delay(600L - elapsed)
             _isRefreshing.value = false
             if (refreshResult == null || refreshResult.isFailure) {
-                _snackbarMessage.value = "Slow internet connection — could not refresh from server."
+                _snackbarMessage.value = "Weak internet connection. Please pull down to try again."
             }
         }
     }
@@ -526,7 +539,7 @@ class JanzViewModel(
                         "Subscribed to ${creator.displayName} (Bell ON)"
                     }
                 }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Subscription update failed" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Subscription update failed") }
         }
     }
 
@@ -540,7 +553,7 @@ class JanzViewModel(
                         "Upload notifications muted for ${creator.displayName}"
                     }
                 }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to update notification bell" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to update notification bell") }
         }
     }
 
@@ -559,21 +572,21 @@ class JanzViewModel(
                 parentCommentId = parentCommentId,
                 authorName = selfCreator?.displayName ?: currentFirebaseUser.displayName ?: "User",
                 authorAvatarUrl = selfCreator?.avatarUrl.orEmpty()
-            ).onFailure { _snackbarMessage.value = it.localizedMessage ?: "Could not post comment" }
+            ).onFailure { _snackbarMessage.value = friendlyPublicError(it, "Could not post comment") }
         }
     }
 
     fun togglePinComment(videoId: String, comment: Comment) {
         viewModelScope.launch {
             repository.togglePinComment(videoId, comment)
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Could not update comment" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Could not update comment") }
         }
     }
 
     fun deleteComment(video: Video, commentId: String) {
         viewModelScope.launch {
             repository.deleteComment(video, commentId)
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Could not delete comment" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Could not delete comment") }
         }
     }
 
@@ -585,7 +598,7 @@ class JanzViewModel(
                     val savedNow = !user.savedVideoIds.contains(video.id)
                     _snackbarMessage.value = if (savedNow) "Saved to library" else "Removed from saved"
                 }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Save failed" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Could not save video") }
         }
     }
 
@@ -604,7 +617,7 @@ class JanzViewModel(
         viewModelScope.launch {
             repository.createPlaylist(title, description, initialVideoId)
                 .onSuccess { _snackbarMessage.value = "Playlist created" }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to create playlist" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to create playlist") }
         }
     }
 
@@ -658,7 +671,7 @@ class JanzViewModel(
                     _snackbarMessage.value = "Profile updated"
                     onDone()
                 }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to update profile" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to update profile") }
         }
     }
 
@@ -697,8 +710,8 @@ class JanzViewModel(
         lastReportAtMs = now
         viewModelScope.launch {
             repository.submitReport(targetType, targetId, targetVideoId, reason, details)
-                .onSuccess { _snackbarMessage.value = "Report submitted for moderation review" }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to submit report" }
+                .onSuccess { _snackbarMessage.value = "Report submitted for review" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to submit report") }
         }
     }
 
@@ -706,7 +719,7 @@ class JanzViewModel(
         viewModelScope.launch {
             repository.updateVideoMetadata(videoId, title, description, category, language, visibility)
                 .onSuccess { _snackbarMessage.value = "Video updated" }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to update video" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to update video") }
         }
     }
 
@@ -714,7 +727,7 @@ class JanzViewModel(
         viewModelScope.launch {
             repository.deleteVideo(videoId)
                 .onSuccess { _snackbarMessage.value = "Video deleted" }
-                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Failed to delete video" }
+                .onFailure { _snackbarMessage.value = friendlyPublicError(it, "Failed to delete video") }
         }
     }
 

@@ -1363,12 +1363,13 @@ class JanzRepository(
             val safeAdMediaUrl = sanitizeHttpsOrEmpty(settings.adMediaUrl)
             val safeAdClickUrl = sanitizeHttpsOrEmpty(settings.adClickUrl)
             val safeBannerUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobBannerUnitId, "Banner Ad Unit ID")
+            val safeNativeUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobNativeUnitId, "Native Advanced Ad Unit ID")
             val safeVideoUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobVideoInterstitialUnitId, "Video Ad Unit ID")
             val safeShortsUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobShortsInterstitialUnitId, "Shorts Ad Unit ID")
             val safeAdDuration = settings.adDurationSec.coerceIn(5L, 60L)
             val safeAdSkipAfter = settings.adSkipAfterSec.coerceIn(0L, safeAdDuration.coerceAtMost(30L))
             val safeShortsInterval = settings.admobShortsInterval.coerceIn(2L, 30L)
-            val safeCooldownSec = settings.admobCooldownSec.coerceIn(30L, 1800L)
+            val safeCooldownSec = settings.admobCooldownSec.coerceIn(0L, 1800L)
 
             db.collection("platformSettings").document("config").set(
                 mapOf(
@@ -1386,6 +1387,8 @@ class JanzRepository(
                     "adPreRollEnabled" to settings.adPreRollEnabled,
                     "adMidRollEnabled" to settings.adMidRollEnabled,
                     "adPostRollEnabled" to settings.adPostRollEnabled,
+                    "adHomeFeedEnabled" to settings.adHomeFeedEnabled,
+                    "adShortsNativeEnabled" to settings.adShortsNativeEnabled,
                     "adSkipAfterSec" to safeAdSkipAfter,
                     "adDurationSec" to safeAdDuration,
                     "adTitle" to settings.adTitle.trim().take(100),
@@ -1395,6 +1398,7 @@ class JanzRepository(
                     "admobTestMode" to settings.admobTestMode,
                     "admobBannerEnabled" to settings.admobBannerEnabled,
                     "admobBannerUnitId" to safeBannerUnit,
+                    "admobNativeUnitId" to safeNativeUnit,
                     "admobVideoInterstitialUnitId" to safeVideoUnit,
                     "admobShortsInterstitialUnitId" to safeShortsUnit,
                     "admobShortsInterval" to safeShortsInterval,

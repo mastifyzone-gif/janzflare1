@@ -164,19 +164,19 @@ private fun PrivacyPolicyContent() {
     )
     PolicySection(
         title = "1. Information We Collect",
-        body = "When you sign in with Google, JanzFlare stores your Google Account UID, email address (kept strictly private to you and authorized administrators), display name, handle, and optional profile photos/channel links. When you upload videos, Shorts, comments, likes, or playlists, that content is stored to power your channel and discovery feed."
+        body = "When you sign in with Google, JanzFlare stores your account profile, email address (kept strictly private to you and authorized moderators), display name, handle, and optional profile photos or channel links. When you upload videos, Shorts, comments, likes, or playlists, that content is stored to power your channel and discovery feed."
     )
     PolicySection(
         title = "2. Cloud Storage & Third-Party Services",
-        body = "JanzFlare uses Google Firebase Authentication & Cloud Firestore (over encrypted HTTPS/TLS) for account data, analytics counters, and moderation, and Cloudinary CDN for secure video, thumbnail, avatar, and cover image delivery. We never sell your personal information."
+        body = "JanzFlare uses secure, encrypted cloud hosting (HTTPS/TLS) for account data, creator analytics, and video/image streaming, and Google AdMob for clearly labeled ads. We never sell your personal information."
     )
     PolicySection(
         title = "3. Device Permissions & Least Privilege",
-        body = "JanzFlare uses the zero-permission Android Photo Picker when you choose videos or images from your gallery. Notification permission (Android 13+) is optional and used solely for upload progress and creator activity alerts you control in Settings."
+        body = "JanzFlare uses the privacy-first Android Photo Picker when you choose videos or images from your gallery. Notification permission is optional and used only for upload progress and creator activity alerts you control in Settings."
     )
     PolicySection(
         title = "4. Account & Data Deletion",
-        body = "You may permanently delete your account, channel profile, and uploaded videos at any time from Settings & Privacy -> Delete Account Data. For support or data inquiries, contact Founder & Data Protection Officer at mdayubjanj@gmail.com."
+        body = "You may permanently delete your account, channel profile, and uploaded videos at any time from Settings & Privacy -> Delete Account Data. For support or data inquiries, contact mdayubjanj@gmail.com."
     )
 }
 
@@ -189,7 +189,7 @@ private fun TermsOfServiceContent() {
     )
     PolicySection(
         title = "1. Your Content & Ownership",
-        body = "Creators retain ownership of the original videos and Shorts they upload. By publishing on JanzFlare, you grant JanzFlare a worldwide, non-exclusive license to host, transcode, stream, and share your public content within the platform."
+        body = "Creators retain ownership of the original videos and Shorts they upload. By publishing on JanzFlare, you grant JanzFlare a worldwide, non-exclusive license to host, optimize, stream, and share your public content within the platform."
     )
     PolicySection(
         title = "2. Prohibited Content & Copyright (DMCA)",
@@ -197,32 +197,32 @@ private fun TermsOfServiceContent() {
     )
     PolicySection(
         title = "3. Views, Engagement & Monetization Eligibility",
-        body = "JanzFlare distinguishes Public Views from Monetization-Eligible Engaged Views (verified sustained watch sessions). Creators must reach at least 500 authentic subscribers plus either 1,000 public watch hours or 100,000 Engaged Shorts Views, and pass manual admin review, before monetization payouts are approved."
+        body = "JanzFlare separates Public Views from Monetization-Eligible Engaged Views (verified sustained watch sessions). Creators must reach at least 500 authentic subscribers plus either 1,000 public watch hours or 100,000 Engaged Shorts Views, and pass manual review, before monetization payouts are approved."
     )
     PolicySection(
-        title = "4. Sponsored Ads & External Links",
-        body = "JanzFlare may display clearly labeled Sponsored In-Video Ads (pre-roll, mid-roll, or post-roll) to support platform hosting and creator monetization. External channel or update links open safely in your browser and are governed by their respective websites."
+        title = "4. Ads & External Links",
+        body = "JanzFlare may display clearly labeled in-feed, banner, and in-player ads to support platform hosting and creator monetization. External channel or update links open safely in your browser and are governed by their respective websites."
     )
 }
 
 @Composable
 private fun CookieAndDataPolicyContent() {
     Text(
-        text = "Cookies, Local Cache & Telemetry Policy",
+        text = "Cookies & Local Data Policy",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary
     )
     PolicySection(
-        title = "1. Authentication & Session Tokens",
-        body = "JanzFlare stores encrypted Firebase Authentication tokens locally on your device so you remain securely signed in without re-entering credentials on every launch. Unencrypted cloud backups of app data are disabled (allowBackup=false)."
+        title = "1. Sign-In Sessions",
+        body = "JanzFlare stores encrypted sign-in session tokens locally on your device so you remain securely signed in without re-entering credentials on every launch."
     )
     PolicySection(
         title = "2. Media & Playback Cache",
-        body = "ExoPlayer and Coil cache video segments and thumbnails temporarily in your device's app cache to reduce mobile data usage and prevent buffering on slow networks. You can clear app cache anytime from Android System Settings."
+        body = "The app caches video segments and thumbnails temporarily on your device to reduce mobile data usage and prevent buffering on slow networks. You can clear app cache anytime from Android Settings."
     )
     PolicySection(
         title = "3. Watch History & Fair Recommendations",
-        body = "We store your watch history and preferred categories/languages inside your private user record so the Home feed recommends relevant videos and Shorts fairly. We do not use invasive cross-app third-party ad tracking cookies."
+        body = "We store your watch history and preferred categories/languages privately so the Home feed recommends relevant videos and Shorts fairly."
     )
     PolicySection(
         title = "4. Contact & Updates",

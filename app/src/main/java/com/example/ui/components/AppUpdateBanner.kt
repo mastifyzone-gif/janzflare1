@@ -189,7 +189,11 @@ fun AppUpdateBanner(
             ) {
                 val installedCode = getInstalledVersionCode(context)
                 Text(
-                    text = "Installed: v${BuildConfig.VERSION_NAME} (Build $installedCode) → Latest: Build ${cfg.latestVersionCode}",
+                    text = if (previewMode) {
+                        "Installed: v${BuildConfig.VERSION_NAME} (Build $installedCode) → Latest: Build ${cfg.latestVersionCode}"
+                    } else {
+                        "Current: v${BuildConfig.VERSION_NAME} • New: v${cfg.latestVersionName.ifBlank { "Latest" }}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
@@ -265,7 +269,11 @@ fun ForceUpdateDialog(
                 }
                 val installedCode = getInstalledVersionCode(context)
                 Text(
-                    text = "Your version: v${BuildConfig.VERSION_NAME} (Build $installedCode) • Latest: Build ${cfg.latestVersionCode}",
+                    text = if (previewMode || isAdmin) {
+                        "Your version: v${BuildConfig.VERSION_NAME} (Build $installedCode) • Latest: Build ${cfg.latestVersionCode}"
+                    } else {
+                        "Your version: v${BuildConfig.VERSION_NAME} • Latest: v${cfg.latestVersionName.ifBlank { "New" }}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -242,6 +242,7 @@ fun SettingsPrivacyScreen(
     val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val userState by viewModel.userAccountState.collectAsStateWithLifecycle()
+    val allCreators by viewModel.allCreators.collectAsStateWithLifecycle()
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
     val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
     val user = (userState as? UiState.Success)?.data
@@ -309,12 +310,15 @@ fun SettingsPrivacyScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         user?.blockedUserIds.orEmpty().forEach { blockedUid ->
+                            val blockedCreator = allCreators.firstOrNull { it.creatorId == blockedUid }
+                            val blockedLabel = blockedCreator?.displayName?.takeIf { it.isNotBlank() }
+                                ?: "Blocked User"
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("UID: ${blockedUid.take(12)}...", style = MaterialTheme.typography.bodySmall)
+                                Text(blockedLabel, style = MaterialTheme.typography.bodyMedium)
                                 TextButton(onClick = { viewModel.toggleBlockUser(blockedUid) }) {
                                     Icon(Icons.Default.Block, null)
                                     Text("Unblock")
@@ -396,7 +400,11 @@ fun SettingsPrivacyScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "App Version: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                                text = if (isAdmin) {
+                                    "JanzFlare v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})"
+                                } else {
+                                    "JanzFlare v${BuildConfig.VERSION_NAME}"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -955,12 +963,15 @@ fun AdminDashboardScreen(
                         var adsEnabled by remember(platformSettings) { mutableStateOf(currentCfg.adsEnabled) }
                         var testMode by remember(platformSettings) { mutableStateOf(currentCfg.admobTestMode) }
                         var bannerEnabled by remember(platformSettings) { mutableStateOf(currentCfg.admobBannerEnabled) }
+                        var homeFeedNative by remember(platformSettings) { mutableStateOf(currentCfg.adHomeFeedEnabled) }
+                        var shortsNative by remember(platformSettings) { mutableStateOf(currentCfg.adShortsNativeEnabled) }
                         var preRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPreRollEnabled) }
                         var midRoll by remember(platformSettings) { mutableStateOf(currentCfg.adMidRollEnabled) }
                         var postRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPostRollEnabled) }
                         var bannerUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobBannerUnitId) }
-                        var videoUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobVideoInterstitialUnitId) }
-                        var shortsUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobShortsInterstitialUnitId) }
+                        var nativeUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobNativeUnitId) }
+                        var skipAfterSec by remember(platformSettings) { mutableStateOf(currentCfg.adSkipAfterSec) }
+                        var adDurationSec by remember(platformSettings) { mutableStateOf(currentCfg.adDurationSec) }
                         var shortsInterval by remember(platformSettings) { mutableStateOf(currentCfg.admobShortsInterval) }
                         var cooldownSec by remember(platformSettings) { mutableStateOf(currentCfg.admobCooldownSec) }
                         val isSampleAppId = BuildConfig.ADMOB_APP_ID == "ca-app-pub-3940256099942544~3347511713"
@@ -974,7 +985,7 @@ fun AdminDashboardScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Campaign, null, tint = FlareOrange)
                                         Spacer(Modifier.width(8.dp))
-                                        Text("Google AdMob Live Control", style = MaterialTheme.typography.titleMedium)
+                                        Text("Google AdMob (Native + Banner)", style = MaterialTheme.typography.titleMedium)
                                     }
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
@@ -984,7 +995,7 @@ fun AdminDashboardScreen(
                                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(
                                                 text = if (isSampleAppId) {
-                                                    "AdMob App ID: Google Official Test App ID"
+                                                    "AdMob App ID: Test App ID Active"
                                                 } else {
                                                     "AdMob App ID: Custom Live App ID Connected"
                                                 },
@@ -992,7 +1003,7 @@ fun AdminDashboardScreen(
                                                 color = if (isSampleAppId) FlareOrange else MaterialTheme.colorScheme.primary
                                             )
                                             Text(
-                                                text = "To connect your own AdMob App ID without editing code, set ADMOB_APP_ID in AI Studio Secrets and rebuild. Ad Unit IDs & placements below update LIVE instantly for all users.",
+                                                text = "No intrusive fullscreen popups! Uses Native Advanced (inline Home cards, 16:9 Player Box Pre/Mid/Post-Roll, swipeable Shorts) + Adaptive Banner.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1021,9 +1032,9 @@ fun AdminDashboardScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text("Safe Test Mode (Recommended while testing)", style = MaterialTheme.typography.titleSmall)
+                                            Text("Safe Test Mode", style = MaterialTheme.typography.titleSmall)
                                             Text(
-                                                "ON = Google official test ads (prevents self-click ban). Turn OFF only when ready for live earnings.",
+                                                "ON = Google official test Native & Banner ads (safe while testing). Turn OFF when using your real Ad Unit IDs.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1032,22 +1043,22 @@ fun AdminDashboardScreen(
                                     }
 
                                     HorizontalDivider()
-                                    Text("Ad Placements", style = MaterialTheme.typography.labelLarge)
+                                    Text("Non-Fullscreen Ad Placements", style = MaterialTheme.typography.labelLarge)
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Banner Ads (Home Feed & Below Video)")
-                                        Switch(checked = bannerEnabled, onCheckedChange = { bannerEnabled = it })
+                                        Text("Home Feed Native Cards (Every 4 Videos)")
+                                        Switch(checked = homeFeedNative, onCheckedChange = { homeFeedNative = it })
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Pre-Roll Video Ad (Start of Video)")
+                                        Text("Video Start Ad (Pre-Roll in Player Box)")
                                         Switch(checked = preRoll, onCheckedChange = { preRoll = it })
                                     }
                                     Row(
@@ -1055,7 +1066,7 @@ fun AdminDashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Mid-Roll Video Ad (50% of 30s+ Videos)")
+                                        Text("Video Mid-Roll Ad (50% in Player Box)")
                                         Switch(checked = midRoll, onCheckedChange = { midRoll = it })
                                     }
                                     Row(
@@ -1063,46 +1074,76 @@ fun AdminDashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Post-Roll Video Ad (End of Video)")
+                                        Text("Video End Ad (Post-Roll in Player Box)")
                                         Switch(checked = postRoll, onCheckedChange = { postRoll = it })
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Shorts Swipeable Native Ad Page")
+                                        Switch(checked = shortsNative, onCheckedChange = { shortsNative = it })
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Banner Ads (Below Video & Home)")
+                                        Switch(checked = bannerEnabled, onCheckedChange = { bannerEnabled = it })
                                     }
 
                                     HorizontalDivider()
-                                    Text("Live Google AdMob Ad Unit IDs", style = MaterialTheme.typography.labelLarge)
+                                    Text("Live AdMob Ad Unit IDs (Only 2 Needed!)", style = MaterialTheme.typography.labelLarge)
                                     Text(
-                                        "Format: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY (used when Safe Test Mode is OFF)",
+                                        "Create 'Native advanced' and 'Banner' units in AdMob and paste IDs here (used when Safe Test Mode is OFF).",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedTextField(
+                                        value = nativeUnitId,
+                                        onValueChange = { nativeUnitId = it.trim().take(40) },
+                                        label = { Text("Native Advanced Ad Unit ID") },
+                                        placeholder = { Text("ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                     OutlinedTextField(
                                         value = bannerUnitId,
                                         onValueChange = { bannerUnitId = it.trim().take(40) },
                                         label = { Text("Banner Ad Unit ID") },
-                                        placeholder = { Text("ca-app-pub-3940256099942544/6300978111") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = videoUnitId,
-                                        onValueChange = { videoUnitId = it.trim().take(40) },
-                                        label = { Text("Video Interstitial Ad Unit ID (Pre/Mid/Post-Roll)") },
-                                        placeholder = { Text("ca-app-pub-3940256099942544/8691691433") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = shortsUnitId,
-                                        onValueChange = { shortsUnitId = it.trim().take(40) },
-                                        label = { Text("Shorts Interstitial Ad Unit ID") },
-                                        placeholder = { Text("ca-app-pub-3940256099942544/8691691433") },
+                                        placeholder = { Text("ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth()
                                     )
 
                                     HorizontalDivider()
-                                    Text("Policy Frequency Cap (Cooldown between Fullscreen Ads):", style = MaterialTheme.typography.labelLarge)
+                                    Text("Player Box Ad Skip Button Delay:", style = MaterialTheme.typography.labelLarge)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(60L to "1 min", 180L to "3 min", 300L to "5 min", 600L to "10 min").forEach { (sec, label) ->
+                                        listOf(3L to "3s", 5L to "5s", 8L to "8s").forEach { (sec, label) ->
+                                            FilterChip(
+                                                selected = skipAfterSec == sec,
+                                                onClick = { skipAfterSec = sec },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+
+                                    Text("Player Box Ad Max Duration:", style = MaterialTheme.typography.labelLarge)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(10L to "10s", 15L to "15s", 20L to "20s").forEach { (sec, label) ->
+                                            FilterChip(
+                                                selected = adDurationSec == sec,
+                                                onClick = { adDurationSec = sec },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+
+                                    Text("Gap Between In-Player Box Ads:", style = MaterialTheme.typography.labelLarge)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(0L to "Every Video", 30L to "30s", 60L to "1m", 180L to "3m").forEach { (sec, label) ->
                                             FilterChip(
                                                 selected = cooldownSec == sec,
                                                 onClick = { cooldownSec = sec },
@@ -1111,9 +1152,9 @@ fun AdminDashboardScreen(
                                         }
                                     }
 
-                                    Text("Shorts Ad Interval (Show 1 Ad Every N Swipes):", style = MaterialTheme.typography.labelLarge)
+                                    Text("Shorts Native Ad Interval:", style = MaterialTheme.typography.labelLarge)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(4L to "4", 6L to "6", 8L to "8", 10L to "10").forEach { (count, label) ->
+                                        listOf(4L to "4", 5L to "5", 6L to "6", 8L to "8").forEach { (count, label) ->
                                             FilterChip(
                                                 selected = shortsInterval == count,
                                                 onClick = { shortsInterval = count },
@@ -1132,11 +1173,14 @@ fun AdminDashboardScreen(
                                             adPreRollEnabled = preRoll,
                                             adMidRollEnabled = midRoll,
                                             adPostRollEnabled = postRoll,
+                                            adHomeFeedEnabled = homeFeedNative,
+                                            adShortsNativeEnabled = shortsNative,
+                                            adSkipAfterSec = skipAfterSec,
+                                            adDurationSec = adDurationSec,
                                             admobTestMode = testMode,
                                             admobBannerEnabled = bannerEnabled,
                                             admobBannerUnitId = bannerUnitId,
-                                            admobVideoInterstitialUnitId = videoUnitId,
-                                            admobShortsInterstitialUnitId = shortsUnitId,
+                                            admobNativeUnitId = nativeUnitId,
                                             admobShortsInterval = shortsInterval,
                                             admobCooldownSec = cooldownSec
                                         )

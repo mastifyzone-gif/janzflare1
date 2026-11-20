@@ -9,8 +9,11 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,22 +23,26 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -43,6 +50,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
@@ -50,25 +58,26 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Reply
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Theaters
-import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WatchLater
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -86,10 +95,14 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -113,9 +126,10 @@ import androidx.media3.ui.PlayerView
 import com.example.data.media.CloudinaryUploader
 import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
-import com.example.data.model.Video
 import com.example.domain.RecommendationEngine
 import com.example.ui.components.AdMobBannerSlot
+import com.example.ui.components.AdMobNativeFeedCard
+import com.example.ui.components.AdMobPlayerBoxNativeAd
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.JanzAdMobManager
 import com.example.ui.components.NetworkStatusBanner
@@ -126,6 +140,7 @@ import com.example.ui.components.VideoCardSkeleton
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatDuration
 import com.example.ui.components.formatRelativeDate
+import com.example.ui.components.formatUploadDate
 import com.example.ui.components.isLocalFileMissing
 import com.example.ui.components.shareVideoIntent
 import com.example.ui.state.JanzViewModel
@@ -133,15 +148,33 @@ import com.example.ui.state.UiState
 import com.example.ui.theme.FlareOrange
 import kotlinx.coroutines.delay
 
+private enum class ActiveBoxAdSlot {
+    PRE_ROLL, MID_ROLL, POST_ROLL
+}
+
+/**
+ * Persistent dual-mode Video Player Overlay:
+ * - Expanded mode: Hides top status bar (battery/clock), adjusts cleanly to bottom navigation bar,
+ *   supports swipe-down & Back to minimize, shows in-box Native Ad (pre/mid/post-roll, NOT fullscreen),
+ *   and renders an expandable About box (views + upload date + description) below the title.
+ * - Mini-Player mode: Keeps the exact same ExoPlayer running uninterrupted at the bottom/side with
+ *   live video preview, Play/Pause, X Close button, and swipe-to-dismiss.
+ */
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun VideoPlayerScreen(
+fun JanzVideoPlayerOverlay(
     videoId: String,
+    isExpanded: Boolean,
+    hasBottomBar: Boolean,
+    useRail: Boolean,
     viewModel: JanzViewModel,
-    onBack: () -> Unit,
+    onMinimize: () -> Unit,
+    onExpand: () -> Unit,
+    onClose: () -> Unit,
     onSelectVideo: (String) -> Unit,
-    onOpenCreatorProfile: (String) -> Unit
+    onOpenCreatorProfile: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -156,6 +189,7 @@ fun VideoPlayerScreen(
     val comments by viewModel.activeComments.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
+    val watchHistory by viewModel.watchHistory.collectAsStateWithLifecycle()
 
     val allVideos = remember(publicVideosState, myVideosState) {
         val pub = (publicVideosState as? UiState.Success)?.data.orEmpty()
@@ -168,7 +202,6 @@ fun VideoPlayerScreen(
     val isLiked = likedIds.contains(videoId)
     val isSaved = user?.savedVideoIds?.contains(videoId) == true
     val followRecord = following.firstOrNull { it.creatorId == video?.creatorId }
-    val watchHistory by viewModel.watchHistory.collectAsStateWithLifecycle()
     val creatorsById = remember(creators) { creators.associateBy { it.creatorId } }
     val followingIds = remember(following) { following.map { it.creatorId }.toSet() }
     val isFollowing = followRecord != null
@@ -211,24 +244,23 @@ fun VideoPlayerScreen(
     var replyTarget by remember { mutableStateOf<Comment?>(null) }
     var showReportDialog by remember { mutableStateOf(false) }
     var showPlaylistDialog by remember { mutableStateOf(false) }
-    var showDescriptionExpanded by remember { mutableStateOf(false) }
+    var showDescriptionExpanded by remember(videoId) { mutableStateOf(false) }
 
-    // Google AdMob Video Interstitial slots (Pre-roll / Mid-roll / Post-roll)
-    var isShowingFullscreenAd by remember(videoId) { mutableStateOf(false) }
+    // Swipe-down gesture offset for smooth minimize to mini-player
+    var dragDownOffsetPx by remember { mutableFloatStateOf(0f) }
+    var miniSwipeOffsetPx by remember { mutableFloatStateOf(0f) }
+
+    // In-player-box Native Advanced Ad state (NEVER fullscreen popup!)
+    var activeBoxAd by remember(videoId) { mutableStateOf<ActiveBoxAdSlot?>(null) }
     var preRollTriggered by remember(videoId) { mutableStateOf(false) }
     var midRollTriggered by remember(videoId) { mutableStateOf(false) }
     var postRollTriggered by remember(videoId) { mutableStateOf(false) }
-    val latestSettings = androidx.compose.runtime.rememberUpdatedState(platformSettings)
-    val latestAutoPlay = androidx.compose.runtime.rememberUpdatedState(autoPlayNext)
-    val latestUpNext = androidx.compose.runtime.rememberUpdatedState(upNextVideos)
 
-    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobVideoInterstitialUnitId) {
-        if (platformSettings?.adsEnabled == true) {
-            JanzAdMobManager.preloadVideoInterstitial(context, platformSettings)
-        }
-    }
+    val latestSettings = rememberUpdatedState(platformSettings)
+    val latestAutoPlay = rememberUpdatedState(autoPlayNext)
+    val latestUpNext = rememberUpdatedState(upNextVideos)
+    val latestIsExpanded = rememberUpdatedState(isExpanded)
 
-    // Set active video for comment listener
     LaunchedEffect(videoId) {
         viewModel.setActiveWatchVideo(videoId)
     }
@@ -236,17 +268,27 @@ fun VideoPlayerScreen(
         onDispose { viewModel.setActiveWatchVideo(null) }
     }
 
-    // Handle fullscreen orientation & system bars
-    LaunchedEffect(fullscreenMode) {
+    // Hide status bar (battery %, clock, icons) whenever video player is expanded,
+    // hide all system bars in landscape fullscreen, and restore immediately in mini-player or on exit.
+    LaunchedEffect(isExpanded, fullscreenMode) {
         activity?.let { act ->
             val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-            if (fullscreenMode) {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            when {
+                !isExpanded -> {
+                    if (fullscreenMode) fullscreenMode = false
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                }
+                fullscreenMode -> {
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                }
+                else -> {
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    controller.hide(WindowInsetsCompat.Type.statusBars())
+                    controller.show(WindowInsetsCompat.Type.navigationBars())
+                }
             }
         }
     }
@@ -260,8 +302,13 @@ fun VideoPlayerScreen(
         }
     }
 
-    BackHandler(enabled = fullscreenMode) {
-        fullscreenMode = false
+    // Back button: Fullscreen -> Portrait Player -> Mini-Player (never abruptly kills video!)
+    BackHandler(enabled = isExpanded) {
+        if (fullscreenMode) {
+            fullscreenMode = false
+        } else {
+            onMinimize()
+        }
     }
 
     val exoPlayer = remember(context) {
@@ -271,32 +318,26 @@ fun VideoPlayerScreen(
         ExoPlayer.Builder(context, renderersFactory).build()
     }
 
-    LaunchedEffect(videoId, video?.videoUri, localVideoMissing, platformSettings?.adsEnabled, platformSettings?.adPreRollEnabled) {
+    LaunchedEffect(videoId, video?.videoUri, localVideoMissing) {
         val uri = video?.videoUri.orEmpty()
         activePlaybackUri = uri
         triedTranscodeFallback = false
         isPreparingFallback = false
         playerErrorMessage = null
+        activeBoxAd = null
         if (uri.isNotBlank() && !localVideoMissing) {
-            val shouldTryPreRoll = !preRollTriggered &&
-                platformSettings?.adsEnabled == true &&
-                platformSettings?.adPreRollEnabled == true
             exoPlayer.setMediaItem(MediaItem.fromUri(uri))
             exoPlayer.prepare()
-            if (shouldTryPreRoll) {
+            val cfg = latestSettings.value
+            val shouldPreRoll = !preRollTriggered &&
+                cfg?.adsEnabled == true &&
+                cfg.adPreRollEnabled &&
+                JanzAdMobManager.canShowPlayerBoxAd(cfg)
+            if (shouldPreRoll) {
                 preRollTriggered = true
-                val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, platformSettings) {
-                    isShowingFullscreenAd = false
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
-                }
-                if (showed) {
-                    isShowingFullscreenAd = true
-                    exoPlayer.playWhenReady = false
-                } else {
-                    exoPlayer.playWhenReady = true
-                }
-            } else if (!isShowingFullscreenAd) {
+                activeBoxAd = ActiveBoxAdSlot.PRE_ROLL
+                exoPlayer.playWhenReady = false
+            } else {
                 exoPlayer.playWhenReady = true
             }
         } else {
@@ -324,7 +365,7 @@ fun VideoPlayerScreen(
                     activePlaybackUri = fallbackUrl
                     exoPlayer.setMediaItem(MediaItem.fromUri(fallbackUrl))
                     exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
+                    exoPlayer.playWhenReady = activeBoxAd == null
                 } else {
                     isPreparingFallback = false
                     val raw = error.message.orEmpty()
@@ -333,7 +374,7 @@ fun VideoPlayerScreen(
                             raw.contains("MediaCodec", ignoreCase = true) ||
                             error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
                             error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ->
-                            "This video's format or resolution isn't supported on this device."
+                            "This video's format isn't supported on this phone."
                         else -> "Could not load video. Check your internet connection and tap Retry."
                     }
                 }
@@ -346,19 +387,15 @@ fun VideoPlayerScreen(
                     playerErrorMessage = null
                 } else if (state == Player.STATE_ENDED) {
                     val cfg = latestSettings.value
-                    if (cfg?.adsEnabled == true && cfg.adPostRollEnabled && !postRollTriggered) {
+                    // Post-roll inside player box (works for short 10-20s videos AND long videos!)
+                    if (latestIsExpanded.value &&
+                        cfg?.adsEnabled == true &&
+                        cfg.adPostRollEnabled &&
+                        !postRollTriggered &&
+                        JanzAdMobManager.resolveNativeUnitId(cfg) != null
+                    ) {
                         postRollTriggered = true
-                        val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, cfg) {
-                            isShowingFullscreenAd = false
-                            if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
-                                onSelectVideo(latestUpNext.value.first().id)
-                            }
-                        }
-                        if (showed) {
-                            isShowingFullscreenAd = true
-                        } else if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
-                            onSelectVideo(latestUpNext.value.first().id)
-                        }
+                        activeBoxAd = ActiveBoxAdSlot.POST_ROLL
                     } else if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
                         onSelectVideo(latestUpNext.value.first().id)
                     }
@@ -372,7 +409,7 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Poll position, trigger Google AdMob mid-roll at 50% (videos >= 30s), and record 3-tier views + watch-time
+    // Poll playback position, trigger mid-roll in-box Native Ad at 50% (videos >= 20s), and record 3-tier views
     LaunchedEffect(exoPlayer, video?.id) {
         var countedPublicView = false
         var countedEngagedView = false
@@ -380,23 +417,19 @@ fun VideoPlayerScreen(
         while (true) {
             currentPosMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(0L)
-            if (!isShowingFullscreenAd && exoPlayer.isPlaying && video != null) {
+            if (activeBoxAd == null && exoPlayer.isPlaying && video != null) {
                 val cfg = latestSettings.value
-                if (cfg?.adsEnabled == true && cfg.adMidRollEnabled && !midRollTriggered &&
-                    durationMs >= 30_000L && currentPosMs >= durationMs / 2L
+                if (latestIsExpanded.value &&
+                    cfg?.adsEnabled == true &&
+                    cfg.adMidRollEnabled &&
+                    !midRollTriggered &&
+                    durationMs >= 20_000L &&
+                    currentPosMs >= durationMs / 2L &&
+                    JanzAdMobManager.canShowPlayerBoxAd(cfg)
                 ) {
                     midRollTriggered = true
                     exoPlayer.pause()
-                    val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, cfg) {
-                        isShowingFullscreenAd = false
-                        exoPlayer.playWhenReady = true
-                        exoPlayer.play()
-                    }
-                    if (showed) {
-                        isShowingFullscreenAd = true
-                    } else {
-                        exoPlayer.play()
-                    }
+                    activeBoxAd = ActiveBoxAdSlot.MID_ROLL
                 } else {
                     accumulatedSec += 1L
                     if (!countedPublicView) {
@@ -425,12 +458,145 @@ fun VideoPlayerScreen(
         exoPlayer.trackSelectionParameters = builder.build()
     }
 
+    // === MINI-PLAYER MODE (keeps playing smoothly at bottom/side with Play/Pause + X button) ===
+    if (!isExpanded) {
+        val bottomClearance = if (hasBottomBar && !useRail) 84.dp else 14.dp
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(start = 10.dp, end = 10.dp, bottom = bottomClearance),
+            contentAlignment = if (useRail) Alignment.BottomEnd else Alignment.BottomCenter
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                shadowElevation = 10.dp,
+                modifier = Modifier
+                    .then(if (useRail) Modifier.widthIn(max = 380.dp) else Modifier.fillMaxWidth())
+                    .graphicsLayer {
+                        translationX = miniSwipeOffsetPx
+                        alpha = (1f - (kotlin.math.abs(miniSwipeOffsetPx) / 420f)).coerceIn(0.35f, 1f)
+                    }
+                    .pointerInput(videoId) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (kotlin.math.abs(miniSwipeOffsetPx) > 180f) {
+                                    miniSwipeOffsetPx = 0f
+                                    onClose()
+                                } else {
+                                    miniSwipeOffsetPx = 0f
+                                }
+                            },
+                            onDragCancel = { miniSwipeOffsetPx = 0f },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                miniSwipeOffsetPx += dragAmount
+                            }
+                        )
+                    }
+                    .clickable(onClick = onExpand)
+                    .testTag("mini_player_bar")
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(116.dp)
+                                .height(65.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black)
+                        ) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = exoPlayer
+                                        useController = false
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        layoutParams = FrameLayout.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                    }
+                                },
+                                update = { view ->
+                                    if (view.player !== exoPlayer) view.player = exoPlayer
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = video?.title ?: "Playing video",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = creator?.displayName ?: video?.creatorName.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("mini_player_play_pause")
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play"
+                            )
+                        }
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("mini_player_close_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close mini player"
+                            )
+                        }
+                    }
+                    val progressFraction = if (durationMs > 0L) {
+                        (currentPosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        color = FlareOrange,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.5.dp)
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    // === EXPANDED FULL PLAYER MODE ===
     if (video == null) {
         if (publicVideosState is UiState.Loading || myVideosState is UiState.Loading) {
             Column(
-                modifier = Modifier
+                modifier = modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
+                    .navigationBarsPadding()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -438,11 +604,17 @@ fun VideoPlayerScreen(
                 VideoCardSkeleton()
             }
         } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Video unavailable or removed", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = onBack) { Text("Go Back") }
+                    Button(onClick = onClose) { Text("Close") }
                 }
             }
         }
@@ -450,11 +622,17 @@ fun VideoPlayerScreen(
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
+            .graphicsLayer {
+                translationY = dragDownOffsetPx.coerceAtLeast(0f)
+                val progress = (dragDownOffsetPx / 900f).coerceIn(0f, 0.14f)
+                scaleX = 1f - progress
+                scaleY = 1f - progress
+            }
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Player Surface
+        // Player Surface (Status bar is hidden above; swipe down minimizes smoothly to Mini-Player!)
         val playerModifier = when {
             fullscreenMode -> Modifier.fillMaxSize()
             theaterMode -> Modifier
@@ -468,7 +646,28 @@ fun VideoPlayerScreen(
         Box(
             modifier = playerModifier
                 .background(Color.Black)
-                .clickable { controlsVisible = !controlsVisible }
+                .pointerInput(fullscreenMode, activeBoxAd) {
+                    if (!fullscreenMode && activeBoxAd == null) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (dragDownOffsetPx > 140f) {
+                                    dragDownOffsetPx = 0f
+                                    onMinimize()
+                                } else {
+                                    dragDownOffsetPx = 0f
+                                }
+                            },
+                            onDragCancel = { dragDownOffsetPx = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                if (dragAmount > 0f || dragDownOffsetPx > 0f) {
+                                    change.consume()
+                                    dragDownOffsetPx = (dragDownOffsetPx + dragAmount).coerceAtLeast(0f)
+                                }
+                            }
+                        )
+                    }
+                }
+                .clickable { if (activeBoxAd == null) controlsVisible = !controlsVisible }
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -487,7 +686,7 @@ fun VideoPlayerScreen(
                     }
                 },
                 update = { view ->
-                    view.player = exoPlayer
+                    if (view.player !== exoPlayer) view.player = exoPlayer
                     view.resizeMode = if (theaterMode) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
@@ -497,7 +696,29 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
+            // In-Box Native Advanced Ad (Pre-Roll / Mid-Roll / Post-Roll — strictly inside player box!)
+            val currentAdSlot = activeBoxAd
+            if (currentAdSlot != null) {
+                AdMobPlayerBoxNativeAd(
+                    settings = platformSettings,
+                    slotLabel = "${videoId}_${currentAdSlot.name}",
+                    onAdFinished = {
+                        activeBoxAd = null
+                        when (currentAdSlot) {
+                            ActiveBoxAdSlot.PRE_ROLL, ActiveBoxAdSlot.MID_ROLL -> {
+                                exoPlayer.playWhenReady = true
+                                exoPlayer.play()
+                            }
+                            ActiveBoxAdSlot.POST_ROLL -> {
+                                if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
+                                    onSelectVideo(latestUpNext.value.first().id)
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -508,7 +729,7 @@ fun VideoPlayerScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        androidx.compose.material3.CircularProgressIndicator(
+                        CircularProgressIndicator(
                             color = FlareOrange,
                             modifier = Modifier.size(32.dp)
                         )
@@ -556,11 +777,7 @@ fun VideoPlayerScreen(
                             modifier = Modifier.size(32.dp)
                         )
                         Text(
-                            text = if (localVideoMissing) {
-                                "Video unavailable on this phone"
-                            } else {
-                                "Unable to play video"
-                            },
+                            text = if (localVideoMissing) "Video unavailable on this phone" else "Unable to play video",
                             color = Color.White,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                         )
@@ -592,15 +809,15 @@ fun VideoPlayerScreen(
                             } else if (video.creatorId == viewModel.currentUserId) {
                                 Button(onClick = {
                                     viewModel.deleteOwnVideo(video.id)
-                                    onBack()
+                                    onClose()
                                 }) {
                                     Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Delete Broken")
+                                    Text("Delete")
                                 }
                             }
-                            OutlinedButton(onClick = onBack) {
-                                Text("Back", color = Color.White)
+                            OutlinedButton(onClick = onClose) {
+                                Text("Close", color = Color.White)
                             }
                         }
                     }
@@ -609,9 +826,10 @@ fun VideoPlayerScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .then(if (fullscreenMode) Modifier.displayCutoutPadding() else Modifier)
                         .background(Color.Black.copy(alpha = 0.35f))
                 ) {
-                    // Top Controls
+                    // Top Controls (Minimize Arrow Down -> Mini-Player!)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -620,14 +838,21 @@ fun VideoPlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = {
-                            if (fullscreenMode) fullscreenMode = false else onBack()
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                        IconButton(
+                            onClick = {
+                                if (fullscreenMode) fullscreenMode = false else onMinimize()
+                            },
+                            modifier = Modifier.testTag("player_minimize_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (fullscreenMode) "Exit fullscreen" else "Minimize to mini player",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Auto-Play toggle
                             Text("Auto", color = Color.White, style = MaterialTheme.typography.labelSmall)
                             Switch(
                                 checked = autoPlayNext,
@@ -635,7 +860,6 @@ fun VideoPlayerScreen(
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             )
 
-                            // Playback Speed
                             Box {
                                 IconButton(onClick = { speedMenuOpen = true }) {
                                     Icon(Icons.Default.Speed, "Playback speed", tint = Color.White)
@@ -654,7 +878,6 @@ fun VideoPlayerScreen(
                                 }
                             }
 
-                            // Quality selector
                             Box {
                                 IconButton(onClick = { qualityMenuOpen = true }) {
                                     Icon(Icons.Default.Settings, "Video quality", tint = Color.White)
@@ -678,7 +901,6 @@ fun VideoPlayerScreen(
                                 }
                             }
 
-                            // Theater mode
                             IconButton(onClick = { theaterMode = !theaterMode }) {
                                 Icon(
                                     Icons.Default.Theaters,
@@ -687,7 +909,6 @@ fun VideoPlayerScreen(
                                 )
                             }
 
-                            // Picture-in-Picture
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
                                 IconButton(onClick = {
                                     val params = PictureInPictureParams.Builder()
@@ -809,9 +1030,14 @@ fun VideoPlayerScreen(
             }
         }
 
+        // Scrollable Metadata, About Box, Creator Card, Banner/Native Ad, Comments & Up Next
+        // Adapts cleanly to bottom system navigation bar & keyboard on every phone!
         if (!fullscreenMode) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+                    .imePadding(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -833,53 +1059,79 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                if (platformSettings?.adsEnabled == true && platformSettings?.admobBannerEnabled == true) {
-                    item(key = "player_admob_banner") {
-                        AdMobBannerSlot(settings = platformSettings)
-                    }
-                }
-
-                // Title & Metadata
+                // Video Title + Clean Expandable About Box (Always shows Views + Upload Date + Description)
                 item {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = video.title,
-                            style = MaterialTheme.typography.headlineMedium
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "${formatCount(video.viewsCount)} views • ${formatRelativeDate(video.createdAt)} • ${video.category} • ${video.language}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (video.description.isNotBlank() || video.tags.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { showDescriptionExpanded = !showDescriptionExpanded }
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateContentSize()
+                                .clickable { showDescriptionExpanded = !showDescriptionExpanded }
+                                .testTag("video_about_box")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    if (video.description.isNotBlank()) {
-                                        Text(
-                                            text = video.description,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            maxLines = if (showDescriptionExpanded) 20 else 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    if (video.tags.isNotEmpty()) {
-                                        Spacer(Modifier.height(6.dp))
-                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            video.tags.forEach { tag ->
-                                                Text(
-                                                    text = "#$tag",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${formatCount(video.viewsCount)} views • ${formatUploadDate(video.createdAt)}",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (showDescriptionExpanded) "Show less" else "About ▾",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                if (video.description.isNotBlank()) {
+                                    Text(
+                                        text = video.description,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = if (showDescriptionExpanded) 40 else 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (showDescriptionExpanded) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    )
+                                    Text(
+                                        text = "Uploaded: ${formatUploadDate(video.createdAt)} (${formatRelativeDate(video.createdAt)}) • ${video.category} • ${video.language}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Text(
+                                        text = "${video.category} • ${video.language} • ${formatRelativeDate(video.createdAt)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if (video.tags.isNotEmpty()) {
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        video.tags.forEach { tag ->
+                                            Text(
+                                                text = "#$tag",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
                                         }
                                     }
                                 }
@@ -940,7 +1192,7 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // Creator Card
+                // Creator Card (Opening creator profile minimizes player so video keeps playing!)
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -949,7 +1201,10 @@ fun VideoPlayerScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenCreatorProfile(video.creatorId) }
+                                .clickable {
+                                    onMinimize()
+                                    onOpenCreatorProfile(video.creatorId)
+                                }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1022,7 +1277,14 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // Comments Section (with Creator Pin / Delete Management)
+                // Inline Adaptive Banner below Creator card (non-fullscreen, clean)
+                if (platformSettings?.adsEnabled == true && platformSettings?.admobBannerEnabled == true) {
+                    item(key = "player_admob_banner") {
+                        AdMobBannerSlot(settings = platformSettings)
+                    }
+                }
+
+                // Comments Section
                 item {
                     Column {
                         Text(
@@ -1090,6 +1352,16 @@ fun VideoPlayerScreen(
                     )
                 }
 
+                // Inline Native Advanced Card between Comments and Up Next
+                if (platformSettings?.adsEnabled == true && platformSettings?.adHomeFeedEnabled == true) {
+                    item(key = "player_native_card_$videoId") {
+                        AdMobNativeFeedCard(
+                            settings = platformSettings,
+                            slotKey = "player_below_$videoId"
+                        )
+                    }
+                }
+
                 // Up Next Queue
                 if (upNextVideos.isNotEmpty()) {
                     item {
@@ -1124,7 +1396,7 @@ fun VideoPlayerScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${next.creatorName} • ${formatCount(next.viewsCount)} views",
+                                        text = "${next.creatorName} • ${formatCount(next.viewsCount)} views • ${formatUploadDate(next.createdAt)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

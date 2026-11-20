@@ -93,7 +93,7 @@ import com.example.ui.screens.SettingsPrivacyScreen
 import com.example.ui.screens.ShortsScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.UploadScreen
-import com.example.ui.screens.VideoPlayerScreen
+import com.example.ui.screens.JanzVideoPlayerOverlay
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.ElectricViolet
@@ -144,12 +144,12 @@ class MainActivity : ComponentActivity() {
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "JanzFlare Setup Required",
+                                text = "JanzFlare",
                                 style = MaterialTheme.typography.headlineMedium
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Firebase configuration (google-services.json) was not included in this build. Add GOOGLE_SERVICES_JSON to GitHub Secrets or place app/google-services.json in the project and rebuild.",
+                                text = "JanzFlare is temporarily unavailable. Please update the app or try again later.",
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -270,11 +270,18 @@ private fun AuthenticatedJanzApp(
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobVideoInterstitialUnitId, platformSettings?.admobShortsInterstitialUnitId) {
+    var activePlayerVideoId by remember { mutableStateOf<String?>(null) }
+    var isPlayerExpanded by remember { mutableStateOf(false) }
+
+    fun openVideoInPlayer(vid: String) {
+        if (vid.isBlank()) return
+        activePlayerVideoId = vid
+        isPlayerExpanded = true
+    }
+
+    LaunchedEffect(platformSettings?.adsEnabled) {
         if (platformSettings?.adsEnabled == true) {
             JanzAdMobManager.ensureInitialized(context)
-            JanzAdMobManager.preloadVideoInterstitial(context, platformSettings)
-            JanzAdMobManager.preloadShortsInterstitial(context, platformSettings)
         }
     }
 
@@ -291,10 +298,11 @@ private fun AuthenticatedJanzApp(
         LaunchedEffect(pendingVideoId, pendingOpenNotifications) {
             when {
                 !pendingVideoId.isNullOrBlank() -> {
-                    navController.navigate(JanzRoutes.watch(pendingVideoId))
+                    openVideoInPlayer(pendingVideoId)
                     onConsumedPendingDestination()
                 }
                 pendingOpenNotifications -> {
+                    isPlayerExpanded = false
                     navController.navigate(JanzRoutes.NOTIFICATIONS)
                     onConsumedPendingDestination()
                 }
@@ -302,6 +310,13 @@ private fun AuthenticatedJanzApp(
         }
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
+
+        // Auto-close mini-player when entering Shorts so audio never overlaps
+        LaunchedEffect(currentRoute) {
+            if (currentRoute == JanzRoutes.SHORTS && activePlayerVideoId != null && !isPlayerExpanded) {
+                activePlayerVideoId = null
+            }
+        }
 
         val bottomTabRoutes = setOf(
             JanzRoutes.HOME,
@@ -403,7 +418,7 @@ private fun AuthenticatedJanzApp(
                                     onOpenNotifications = { navController.navigate(JanzRoutes.NOTIFICATIONS) },
                                     onOpenOwnProfile = { navigateTopLevel(JanzRoutes.PROFILE) },
                                     onOpenCreatorProfile = { cid -> navController.navigate(JanzRoutes.creator(cid)) },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    onOpenVideo = ::openVideoInPlayer,
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) },
                                     onOpenAdmin = { navController.navigate(JanzRoutes.ADMIN) }
@@ -413,7 +428,7 @@ private fun AuthenticatedJanzApp(
                             composable(JanzRoutes.EXPLORE) {
                                 ExploreSearchScreen(
                                     viewModel = viewModel,
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    onOpenVideo = ::openVideoInPlayer,
                                     onOpenCreatorProfile = { cid -> navController.navigate(JanzRoutes.creator(cid)) },
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) }
                                 )
@@ -423,9 +438,8 @@ private fun AuthenticatedJanzApp(
                                 UploadScreen(
                                     viewModel = viewModel,
                                     onPublished = { newVideoId ->
-                                        navController.navigate(JanzRoutes.watch(newVideoId)) {
-                                            popUpTo(JanzRoutes.HOME)
-                                        }
+                                        navigateTopLevel(JanzRoutes.HOME)
+                                        openVideoInPlayer(newVideoId)
                                     }
                                 )
                             }
@@ -444,7 +458,7 @@ private fun AuthenticatedJanzApp(
                                     isBottomTab = true,
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    onOpenVideo = ::openVideoInPlayer,
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
                                     onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
@@ -457,17 +471,10 @@ private fun AuthenticatedJanzApp(
                                 arguments = listOf(navArgument("videoId") { type = NavType.StringType })
                             ) { backStackEntry ->
                                 val vid = backStackEntry.arguments?.getString("videoId").orEmpty()
-                                VideoPlayerScreen(
-                                    videoId = vid,
-                                    viewModel = viewModel,
-                                    onBack = { navController.popBackStack() },
-                                    onSelectVideo = { nextId ->
-                                        navController.navigate(JanzRoutes.watch(nextId)) {
-                                            popUpTo(JanzRoutes.WATCH) { inclusive = true }
-                                        }
-                                    },
-                                    onOpenCreatorProfile = { cid -> navController.navigate(JanzRoutes.creator(cid)) }
-                                )
+                                LaunchedEffect(vid) {
+                                    if (vid.isNotBlank()) openVideoInPlayer(vid)
+                                    navController.popBackStack()
+                                }
                             }
 
                             composable(
@@ -480,7 +487,7 @@ private fun AuthenticatedJanzApp(
                                     isBottomTab = false,
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    onOpenVideo = ::openVideoInPlayer,
                                     onOpenShorts = { navigateTopLevel(JanzRoutes.SHORTS) },
                                     onOpenDashboard = { navController.navigate(JanzRoutes.dashboard(0)) },
                                     onOpenSettings = { navController.navigate(JanzRoutes.SETTINGS) },
@@ -502,7 +509,7 @@ private fun AuthenticatedJanzApp(
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() },
                                     onOpenUpload = { navigateTopLevel(JanzRoutes.CREATE) },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) },
+                                    onOpenVideo = ::openVideoInPlayer,
                                     initialTab = initialTab
                                 )
                             }
@@ -511,7 +518,7 @@ private fun AuthenticatedJanzApp(
                                 NotificationsScreen(
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() },
-                                    onOpenVideo = { vid -> navController.navigate(JanzRoutes.watch(vid)) }
+                                    onOpenVideo = ::openVideoInPlayer
                                 )
                             }
 
@@ -532,6 +539,31 @@ private fun AuthenticatedJanzApp(
                         }
                     }
                 }
+            }
+
+            // Persistent Video Player + Floating Mini-Player Overlay
+            activePlayerVideoId?.let { activeVid ->
+                JanzVideoPlayerOverlay(
+                    videoId = activeVid,
+                    isExpanded = isPlayerExpanded,
+                    hasBottomBar = showChrome,
+                    useRail = useRail,
+                    viewModel = viewModel,
+                    onMinimize = { isPlayerExpanded = false },
+                    onExpand = { isPlayerExpanded = true },
+                    onClose = {
+                        isPlayerExpanded = false
+                        activePlayerVideoId = null
+                    },
+                    onSelectVideo = { nextId ->
+                        activePlayerVideoId = nextId
+                        isPlayerExpanded = true
+                    },
+                    onOpenCreatorProfile = { cid ->
+                        isPlayerExpanded = false
+                        navController.navigate(JanzRoutes.creator(cid))
+                    }
+                )
             }
         }
 

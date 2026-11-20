@@ -189,7 +189,9 @@ data class PlatformSettings(
     val adsEnabled: Boolean = false,
     val adPreRollEnabled: Boolean = true,
     val adMidRollEnabled: Boolean = false,
-    val adPostRollEnabled: Boolean = false,
+    val adPostRollEnabled: Boolean = true,
+    val adHomeFeedEnabled: Boolean = true,
+    val adShortsNativeEnabled: Boolean = true,
     val adSkipAfterSec: Long = 5L,
     val adDurationSec: Long = 10L,
     val adTitle: String = "",
@@ -199,10 +201,11 @@ data class PlatformSettings(
     val admobTestMode: Boolean = true,
     val admobBannerEnabled: Boolean = true,
     val admobBannerUnitId: String = "",
+    val admobNativeUnitId: String = "",
     val admobVideoInterstitialUnitId: String = "",
     val admobShortsInterstitialUnitId: String = "",
-    val admobShortsInterval: Long = 6L,
-    val admobCooldownSec: Long = 180L,
+    val admobShortsInterval: Long = 5L,
+    val admobCooldownSec: Long = 30L,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
