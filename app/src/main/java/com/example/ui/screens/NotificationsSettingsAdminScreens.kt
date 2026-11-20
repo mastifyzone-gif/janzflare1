@@ -779,31 +779,30 @@ fun AdminDashboardScreen(
 
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = if (liveStatus.isLiveOnThisDevice) {
+                                        color = if (liveStatus.isLiveForOlderBuilds && !liveStatus.isLiveOnThisDevice) {
                                             MaterialTheme.colorScheme.primaryContainer
                                         } else {
-                                            FlareOrange.copy(alpha = 0.14f)
+                                            FlareOrange.copy(alpha = 0.16f)
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Text(
-                                                text = "Installed Build: ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME})",
+                                                text = "This Installed App: Build ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME})",
                                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                                             )
                                             Text(
                                                 text = liveStatus.summaryText,
                                                 style = MaterialTheme.typography.bodySmall
                                             )
-                                            if (parsedPreviewCode <= BuildConfig.VERSION_CODE.toLong()) {
+                                            if (parsedPreviewCode != BuildConfig.VERSION_CODE.toLong()) {
                                                 OutlinedButton(
                                                     onClick = {
-                                                        val nextBuild = BuildConfig.VERSION_CODE + 1
-                                                        versionCodeInput = nextBuild.toString()
-                                                        versionNameInput = "1.0.$nextBuild"
+                                                        versionCodeInput = BuildConfig.VERSION_CODE.toString()
+                                                        versionNameInput = BuildConfig.VERSION_NAME
                                                     }
                                                 ) {
-                                                    Text("Set Version Code to ${BuildConfig.VERSION_CODE + 1} (Trigger Now)")
+                                                    Text("Set to This Release (Build ${BuildConfig.VERSION_CODE}) — Hide on New App")
                                                 }
                                             }
                                         }

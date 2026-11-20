@@ -35,9 +35,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.pm.PackageInfoCompat
 import com.example.BuildConfig
 import com.example.data.model.PlatformSettings
 import com.example.ui.theme.FlareOrange
+
+fun getInstalledVersionCode(context: Context? = null): Long {
+    if (context != null) {
+        val pkgVersion = runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            PackageInfoCompat.getLongVersionCode(info)
+        }.getOrNull()
+        if (pkgVersion != null && pkgVersion > 0L) return pkgVersion
+    }
+    return BuildConfig.VERSION_CODE.toLong()
+}
 
 fun normalizeExternalHttpsUrl(raw: String): String {
     val trimmed = raw.trim()
@@ -49,10 +61,12 @@ fun normalizeExternalHttpsUrl(raw: String): String {
     }
 }
 
-fun isAppUpdateAvailable(settings: PlatformSettings?): Boolean {
+fun isAppUpdateAvailable(settings: PlatformSettings?, context: Context? = null): Boolean {
     if (settings == null) return false
     val safeUrl = normalizeExternalHttpsUrl(settings.updateUrl)
-    return settings.latestVersionCode > BuildConfig.VERSION_CODE.toLong() && safeUrl.isNotEmpty()
+    val installedCode = getInstalledVersionCode(context)
+    // Strictly show ONLY to devices with an older installed build than latestVersionCode
+    return settings.latestVersionCode > installedCode && safeUrl.isNotEmpty()
 }
 
 data class UpdateBannerStatus(
@@ -64,29 +78,34 @@ data class UpdateBannerStatus(
 fun evaluateUpdateBannerStatus(
     latestVersionCode: Long,
     updateUrl: String,
-    forceUpdate: Boolean
+    forceUpdate: Boolean,
+    installedCode: Long = BuildConfig.VERSION_CODE.toLong()
 ): UpdateBannerStatus {
     val safeUrl = normalizeExternalHttpsUrl(updateUrl)
-    val currentCode = BuildConfig.VERSION_CODE.toLong()
     return when {
         safeUrl.isEmpty() -> UpdateBannerStatus(
             isLiveForOlderBuilds = false,
             isLiveOnThisDevice = false,
             summaryText = "Inactive: Add a valid https:// Telegram, APK, or Play Store link to activate updates."
         )
-        latestVersionCode <= currentCode -> UpdateBannerStatus(
+        latestVersionCode == installedCode -> UpdateBannerStatus(
             isLiveForOlderBuilds = latestVersionCode > 1L,
             isLiveOnThisDevice = false,
-            summaryText = "Not showing on this build (Build $currentCode): Set Version Code to ${currentCode + 1} or higher to show the banner on current devices."
+            summaryText = if (forceUpdate) {
+                "ACTIVE FOR OLD VERSIONS ONLY: Users on this new build (Build $installedCode) will NOT see any banner. Only users still on Build < $installedCode will get the Force Update popup."
+            } else {
+                "ACTIVE FOR OLD VERSIONS ONLY: Users on this new build (Build $installedCode) will NOT see any banner. Only users still on Build < $installedCode will see the Update Banner."
+            }
         )
-        else -> UpdateBannerStatus(
+        latestVersionCode > installedCode -> UpdateBannerStatus(
             isLiveForOlderBuilds = true,
             isLiveOnThisDevice = true,
-            summaryText = if (forceUpdate) {
-                "LIVE (Mandatory Force Update): Showing on all devices with Build < $latestVersionCode (including this device, Build $currentCode)."
-            } else {
-                "LIVE (Update Banner): Showing on all devices with Build < $latestVersionCode (including this device, Build $currentCode)."
-            }
+            summaryText = "WARNING: Version Code $latestVersionCode is higher than this installed app (Build $installedCode), so even users who just installed this app will see the update banner! Set Version Code to $installedCode if this IS the latest APK."
+        )
+        else -> UpdateBannerStatus(
+            isLiveForOlderBuilds = latestVersionCode > 1L,
+            isLiveOnThisDevice = false,
+            summaryText = "Target Version Code ($latestVersionCode) is lower than this build (Build $installedCode). Set it to $installedCode so all older users update to this release."
         )
     }
 }
@@ -111,8 +130,8 @@ fun AppUpdateBanner(
     modifier: Modifier = Modifier
 ) {
     val cfg = settings ?: return
-    if (!previewMode && (dismissed || !isAppUpdateAvailable(cfg))) return
     val context = LocalContext.current
+    if (!previewMode && (dismissed || !isAppUpdateAvailable(cfg, context))) return
     val resolvedUrl = normalizeExternalHttpsUrl(cfg.updateUrl)
 
     Surface(
@@ -196,8 +215,8 @@ fun ForceUpdateDialog(
     onDismissAdminOrPreview: () -> Unit = {}
 ) {
     val cfg = settings ?: return
-    if (!previewMode && (!cfg.forceUpdate || !isAppUpdateAvailable(cfg))) return
     val context = LocalContext.current
+    if (!previewMode && (!cfg.forceUpdate || !isAppUpdateAvailable(cfg, context))) return
     val resolvedUrl = normalizeExternalHttpsUrl(cfg.updateUrl)
 
     AlertDialog(

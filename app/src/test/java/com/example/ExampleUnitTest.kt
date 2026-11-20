@@ -136,19 +136,22 @@ class ExampleUnitTest {
             com.example.ui.components.normalizeExternalHttpsUrl("http://insecure.example.com/app.apk")
         )
         val currentBuild = BuildConfig.VERSION_CODE.toLong()
-        val inactive = com.example.ui.components.evaluateUpdateBannerStatus(
+        val releaseReady = com.example.ui.components.evaluateUpdateBannerStatus(
             latestVersionCode = currentBuild,
             updateUrl = "t.me/janzflare_official",
-            forceUpdate = true
+            forceUpdate = true,
+            installedCode = currentBuild
         )
-        assertEquals(false, inactive.isLiveOnThisDevice)
+        assertEquals(true, releaseReady.isLiveForOlderBuilds)
+        assertEquals(false, releaseReady.isLiveOnThisDevice)
 
-        val active = com.example.ui.components.evaluateUpdateBannerStatus(
+        val futureWarning = com.example.ui.components.evaluateUpdateBannerStatus(
             latestVersionCode = currentBuild + 1L,
             updateUrl = "t.me/janzflare_official",
-            forceUpdate = true
+            forceUpdate = true,
+            installedCode = currentBuild
         )
-        assertEquals(true, active.isLiveOnThisDevice)
+        assertEquals(true, futureWarning.isLiveOnThisDevice)
     }
 }
 
