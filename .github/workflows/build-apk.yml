@@ -68,6 +68,18 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Read App Version
+        id: version
+        run: |
+          VER_CODE=$(grep -E 'versionCode\s*=' app/build.gradle.kts | grep -oE '[0-9]+' | tail -n 1)
+          VER_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | grep -oE '"[^"]+"' | tail -n 1 | tr -d '"')
+          echo "code=${VER_CODE:-101}" >> "$GITHUB_OUTPUT"
+          echo "name=${VER_NAME:-1.2.0}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### JanzFlare APK Build"
+            echo "- **Version:** v${VER_NAME:-1.2.0} (Build ${VER_CODE:-101})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build Debug APK
         env:
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
@@ -78,6 +90,6 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JanzFlare-debug-apk
+          name: JanzFlare-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

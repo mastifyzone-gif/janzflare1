@@ -781,11 +781,23 @@ class JanzViewModel(
         }
     }
 
-    fun adminUpdatePlatformSettings(settings: PlatformSettings) {
+    fun adminUpdatePlatformSettings(
+        settings: PlatformSettings,
+        successMessage: String? = "Platform settings saved & live!",
+        silentOnFailure: Boolean = false
+    ) {
         viewModelScope.launch {
             repository.adminUpdatePlatformSettings(settings)
-                .onSuccess { _snackbarMessage.value = "Platform settings saved & live!" }
-                .onFailure { err -> _snackbarMessage.value = err.localizedMessage ?: "Failed to save settings" }
+                .onSuccess {
+                    if (!successMessage.isNullOrBlank()) {
+                        _snackbarMessage.value = successMessage
+                    }
+                }
+                .onFailure { err ->
+                    if (!silentOnFailure) {
+                        _snackbarMessage.value = err.localizedMessage ?: "Failed to save settings"
+                    }
+                }
         }
     }
 

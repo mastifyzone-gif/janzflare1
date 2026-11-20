@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -102,6 +103,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -268,9 +270,14 @@ fun JanzVideoPlayerOverlay(
         onDispose { viewModel.setActiveWatchVideo(null) }
     }
 
-    // Hide status bar (battery %, clock, icons) whenever video player is expanded,
-    // hide all system bars in landscape fullscreen, and restore immediately in mini-player or on exit.
-    LaunchedEffect(isExpanded, fullscreenMode) {
+    val isDarkAppTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    // Option 2 System Bar Behavior:
+    // - Portrait expanded player: Keep status bar visible on a pure black top bar ABOVE the video
+    //   (white icons, zero overlap with video or camera cutout).
+    // - Landscape fullscreen: Hide BOTH top status bar & bottom navigation bar edge-to-edge.
+    // - Mini-player / exit: Restore system bars & theme-appropriate icon contrast immediately.
+    LaunchedEffect(isExpanded, fullscreenMode, isDarkAppTheme) {
         activity?.let { act ->
             val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -279,25 +286,28 @@ fun JanzVideoPlayerOverlay(
                     if (fullscreenMode) fullscreenMode = false
                     act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     controller.show(WindowInsetsCompat.Type.systemBars())
+                    controller.isAppearanceLightStatusBars = !isDarkAppTheme
                 }
                 fullscreenMode -> {
                     act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                     controller.hide(WindowInsetsCompat.Type.systemBars())
+                    controller.isAppearanceLightStatusBars = false
                 }
                 else -> {
                     act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    controller.hide(WindowInsetsCompat.Type.statusBars())
-                    controller.show(WindowInsetsCompat.Type.navigationBars())
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                    controller.isAppearanceLightStatusBars = false
                 }
             }
         }
     }
-    DisposableEffect(Unit) {
+    DisposableEffect(isDarkAppTheme) {
         onDispose {
             activity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                WindowCompat.getInsetsController(act.window, act.window.decorView)
-                    .show(WindowInsetsCompat.Type.systemBars())
+                val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                controller.isAppearanceLightStatusBars = !isDarkAppTheme
             }
         }
     }
@@ -632,7 +642,18 @@ fun JanzVideoPlayerOverlay(
             }
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Player Surface (Status bar is hidden above; swipe down minimizes smoothly to Mini-Player!)
+        // Fixed pure-black top status bar strip in Portrait mode so battery %, clock, and
+        // selfie camera notch stay cleanly ABOVE the video and never overlap playback controls.
+        if (!fullscreenMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black)
+                    .statusBarsPadding()
+            )
+        }
+
+        // Player Surface (swipe down minimizes smoothly to Mini-Player!)
         val playerModifier = when {
             fullscreenMode -> Modifier.fillMaxSize()
             theaterMode -> Modifier

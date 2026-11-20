@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -82,6 +83,8 @@ import com.example.data.repository.JanzRepository
 import com.example.notifications.JanzNotificationHelper
 import com.example.ui.components.ForceUpdateDialog
 import com.example.ui.components.JanzAdMobManager
+import com.example.ui.components.getInstalledVersionCode
+import com.example.ui.components.normalizeExternalHttpsUrl
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CreatorDashboardScreen
@@ -131,6 +134,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleNotificationIntent(intent)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+        }
         setContent {
             val isFirebaseReady = remember { FirebaseApp.getApps(this).isNotEmpty() }
             if (!isFirebaseReady) {
@@ -282,6 +294,29 @@ private fun AuthenticatedJanzApp(
     LaunchedEffect(platformSettings?.adsEnabled) {
         if (platformSettings?.adsEnabled == true) {
             JanzAdMobManager.ensureInitialized(context)
+        }
+    }
+
+    // Auto-sync new release version to Firestore when Admin opens a newer APK build,
+    // so every device still on an older version (e.g., v1.1.0) sees the Update Banner immediately!
+    var autoSyncedReleaseCode by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(isAdmin, platformSettings) {
+        val cfg = platformSettings ?: return@LaunchedEffect
+        val installedCode = getInstalledVersionCode(context)
+        if (isAdmin &&
+            installedCode > cfg.latestVersionCode &&
+            normalizeExternalHttpsUrl(cfg.updateUrl).isNotEmpty() &&
+            autoSyncedReleaseCode != installedCode
+        ) {
+            autoSyncedReleaseCode = installedCode
+            viewModel.adminUpdatePlatformSettings(
+                settings = cfg.copy(
+                    latestVersionCode = installedCode,
+                    latestVersionName = BuildConfig.VERSION_NAME
+                ),
+                successMessage = "v${BuildConfig.VERSION_NAME} live! Older app versions will now see the Update Banner.",
+                silentOnFailure = true
+            )
         }
     }
 

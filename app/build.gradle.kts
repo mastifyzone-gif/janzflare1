@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.janzflare.kxmpzq"
         minSdk = 24
         targetSdk = 36
-        versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 100
-        versionName = (project.findProperty("appVersionName") as? String) ?: "1.1.0"
+        versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 101
+        versionName = (project.findProperty("appVersionName") as? String) ?: "1.2.0"
 
         val cloudName = (project.findProperty("cloudinaryCloudName") as? String)?.takeIf { it.isNotBlank() }
             ?: System.getenv("CLOUDINARY_CLOUD_NAME")?.takeIf { it.isNotBlank() }

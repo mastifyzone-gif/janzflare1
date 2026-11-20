@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -201,16 +202,19 @@ fun ShortsScreen(
 
     // Hide top status bar (battery %, clock) while watching Shorts and restore immediately on leave
     val activity = context as? Activity
-    DisposableEffect(activity) {
+    val isDarkAppTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    DisposableEffect(activity, isDarkAppTheme) {
         activity?.let { act ->
             val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.isAppearanceLightStatusBars = false
             controller.hide(WindowInsetsCompat.Type.statusBars())
         }
         onDispose {
             activity?.let { act ->
-                WindowCompat.getInsetsController(act.window, act.window.decorView)
-                    .show(WindowInsetsCompat.Type.statusBars())
+                val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                controller.show(WindowInsetsCompat.Type.statusBars())
+                controller.isAppearanceLightStatusBars = !isDarkAppTheme
             }
         }
     }
