@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,17 +39,66 @@ import com.example.BuildConfig
 import com.example.data.model.PlatformSettings
 import com.example.ui.theme.FlareOrange
 
+fun normalizeExternalHttpsUrl(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return ""
+    return when {
+        trimmed.startsWith("https://", ignoreCase = true) -> "https://" + trimmed.substring(8)
+        !trimmed.contains("://") && trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
+        else -> ""
+    }
+}
+
 fun isAppUpdateAvailable(settings: PlatformSettings?): Boolean {
     if (settings == null) return false
-    return settings.latestVersionCode > BuildConfig.VERSION_CODE.toLong() &&
-        settings.updateUrl.startsWith("https://")
+    val safeUrl = normalizeExternalHttpsUrl(settings.updateUrl)
+    return settings.latestVersionCode > BuildConfig.VERSION_CODE.toLong() && safeUrl.isNotEmpty()
+}
+
+data class UpdateBannerStatus(
+    val isLiveForOlderBuilds: Boolean,
+    val isLiveOnThisDevice: Boolean,
+    val summaryText: String
+)
+
+fun evaluateUpdateBannerStatus(
+    latestVersionCode: Long,
+    updateUrl: String,
+    forceUpdate: Boolean
+): UpdateBannerStatus {
+    val safeUrl = normalizeExternalHttpsUrl(updateUrl)
+    val currentCode = BuildConfig.VERSION_CODE.toLong()
+    return when {
+        safeUrl.isEmpty() -> UpdateBannerStatus(
+            isLiveForOlderBuilds = false,
+            isLiveOnThisDevice = false,
+            summaryText = "Inactive: Add a valid https:// Telegram, APK, or Play Store link to activate updates."
+        )
+        latestVersionCode <= currentCode -> UpdateBannerStatus(
+            isLiveForOlderBuilds = latestVersionCode > 1L,
+            isLiveOnThisDevice = false,
+            summaryText = "Not showing on this build (Build $currentCode): Set Version Code to ${currentCode + 1} or higher to show the banner on current devices."
+        )
+        else -> UpdateBannerStatus(
+            isLiveForOlderBuilds = true,
+            isLiveOnThisDevice = true,
+            summaryText = if (forceUpdate) {
+                "LIVE (Mandatory Force Update): Showing on all devices with Build < $latestVersionCode (including this device, Build $currentCode)."
+            } else {
+                "LIVE (Update Banner): Showing on all devices with Build < $latestVersionCode (including this device, Build $currentCode)."
+            }
+        )
+    }
 }
 
 fun openExternalHttpsUrl(context: Context, url: String) {
-    val clean = url.trim()
-    if (!clean.startsWith("https://")) return
+    val clean = normalizeExternalHttpsUrl(url)
+    if (clean.isEmpty()) return
     runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clean)))
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clean)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 }
 
@@ -57,11 +107,13 @@ fun AppUpdateBanner(
     settings: PlatformSettings?,
     dismissed: Boolean,
     onDismiss: () -> Unit,
+    previewMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (dismissed || !isAppUpdateAvailable(settings)) return
     val cfg = settings ?: return
+    if (!previewMode && (dismissed || !isAppUpdateAvailable(cfg))) return
     val context = LocalContext.current
+    val resolvedUrl = normalizeExternalHttpsUrl(cfg.updateUrl)
 
     Surface(
         color = FlareOrange.copy(alpha = 0.14f),
@@ -104,7 +156,7 @@ fun AppUpdateBanner(
                         }
                     }
                 }
-                if (!cfg.forceUpdate) {
+                if (!cfg.forceUpdate || previewMode) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Dismiss update banner", modifier = Modifier.size(18.dp))
                     }
@@ -122,7 +174,8 @@ fun AppUpdateBanner(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Button(
-                    onClick = { openExternalHttpsUrl(context, cfg.updateUrl) },
+                    onClick = { if (resolvedUrl.isNotEmpty()) openExternalHttpsUrl(context, resolvedUrl) },
+                    enabled = resolvedUrl.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(10.dp),
@@ -137,13 +190,20 @@ fun AppUpdateBanner(
 
 @Composable
 fun ForceUpdateDialog(
-    settings: PlatformSettings?
+    settings: PlatformSettings?,
+    isAdmin: Boolean = false,
+    previewMode: Boolean = false,
+    onDismissAdminOrPreview: () -> Unit = {}
 ) {
-    if (settings == null || !settings.forceUpdate || !isAppUpdateAvailable(settings)) return
+    val cfg = settings ?: return
+    if (!previewMode && (!cfg.forceUpdate || !isAppUpdateAvailable(cfg))) return
     val context = LocalContext.current
+    val resolvedUrl = normalizeExternalHttpsUrl(cfg.updateUrl)
 
     AlertDialog(
-        onDismissRequest = { /* Mandatory update cannot be dismissed */ },
+        onDismissRequest = {
+            if (previewMode) onDismissAdminOrPreview()
+        },
         icon = {
             Icon(
                 imageVector = Icons.Default.SystemUpdate,
@@ -154,7 +214,11 @@ fun ForceUpdateDialog(
         },
         title = {
             Text(
-                text = "Update Required (v${settings.latestVersionName.ifBlank { settings.latestVersionCode.toString() }})",
+                text = if (previewMode) {
+                    "Preview: Update Required (v${cfg.latestVersionName.ifBlank { cfg.latestVersionCode.toString() }})"
+                } else {
+                    "Update Required (v${cfg.latestVersionName.ifBlank { cfg.latestVersionCode.toString() }})"
+                },
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
             )
         },
@@ -164,7 +228,7 @@ fun ForceUpdateDialog(
                     text = "A newer, safer version of JanzFlare is available. Please update to continue using the app.",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                if (settings.updateNotes.isNotBlank()) {
+                if (cfg.updateNotes.isNotBlank()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(10.dp),
@@ -173,7 +237,7 @@ fun ForceUpdateDialog(
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("What's New:", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
                             Spacer(Modifier.height(2.dp))
-                            Text(settings.updateNotes, style = MaterialTheme.typography.bodySmall)
+                            Text(cfg.updateNotes, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -186,7 +250,8 @@ fun ForceUpdateDialog(
         },
         confirmButton = {
             Button(
-                onClick = { openExternalHttpsUrl(context, settings.updateUrl) },
+                onClick = { if (resolvedUrl.isNotEmpty()) openExternalHttpsUrl(context, resolvedUrl) },
+                enabled = resolvedUrl.isNotEmpty(),
                 colors = ButtonDefaults.buttonColors(containerColor = FlareOrange),
                 modifier = Modifier.testTag("force_update_now_button")
             ) {
@@ -194,6 +259,13 @@ fun ForceUpdateDialog(
                 Spacer(Modifier.width(6.dp))
                 Text("Download Update")
             }
-        }
+        },
+        dismissButton = if (isAdmin || previewMode) {
+            {
+                TextButton(onClick = onDismissAdminOrPreview) {
+                    Text(if (previewMode) "Close Preview" else "Admin Bypass")
+                }
+            }
+        } else null
     )
 }

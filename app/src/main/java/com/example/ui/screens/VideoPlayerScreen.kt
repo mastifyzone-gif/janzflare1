@@ -114,9 +114,10 @@ import com.example.data.media.CloudinaryUploader
 import com.example.data.model.Comment
 import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
-import com.example.ui.components.AdPlacementSlot
+import com.example.domain.RecommendationEngine
+import com.example.ui.components.AdMobBannerSlot
 import com.example.ui.components.CreatorAvatar
-import com.example.ui.components.InVideoAdOverlay
+import com.example.ui.components.JanzAdMobManager
 import com.example.ui.components.NetworkStatusBanner
 import com.example.ui.components.PlaylistPickerDialog
 import com.example.ui.components.ReportContentDialog
@@ -167,10 +168,21 @@ fun VideoPlayerScreen(
     val isLiked = likedIds.contains(videoId)
     val isSaved = user?.savedVideoIds?.contains(videoId) == true
     val followRecord = following.firstOrNull { it.creatorId == video?.creatorId }
+    val watchHistory by viewModel.watchHistory.collectAsStateWithLifecycle()
+    val creatorsById = remember(creators) { creators.associateBy { it.creatorId } }
+    val followingIds = remember(following) { following.map { it.creatorId }.toSet() }
     val isFollowing = followRecord != null
     val notifyOnUpload = followRecord?.notifyOnUpload ?: true
-    val upNextVideos = remember(allVideos, videoId) {
-        allVideos.filter { it.id != videoId && !it.shortForm }.take(8)
+    val upNextVideos = remember(allVideos, video, creatorsById, user, followingIds, watchHistory) {
+        RecommendationEngine.rankUpNext(
+            currentVideo = video,
+            candidates = allVideos,
+            creatorsById = creatorsById,
+            user = user,
+            followingIds = followingIds,
+            watchHistory = watchHistory,
+            limit = 10
+        )
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -201,14 +213,20 @@ fun VideoPlayerScreen(
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var showDescriptionExpanded by remember { mutableStateOf(false) }
 
-    // YouTube-style In-Video Ad slots (Pre-roll / Mid-roll / Post-roll)
-    var activeAdSlot by remember(videoId) { mutableStateOf<AdPlacementSlot?>(null) }
+    // Google AdMob Video Interstitial slots (Pre-roll / Mid-roll / Post-roll)
+    var isShowingFullscreenAd by remember(videoId) { mutableStateOf(false) }
     var preRollTriggered by remember(videoId) { mutableStateOf(false) }
     var midRollTriggered by remember(videoId) { mutableStateOf(false) }
     var postRollTriggered by remember(videoId) { mutableStateOf(false) }
     val latestSettings = androidx.compose.runtime.rememberUpdatedState(platformSettings)
     val latestAutoPlay = androidx.compose.runtime.rememberUpdatedState(autoPlayNext)
     val latestUpNext = androidx.compose.runtime.rememberUpdatedState(upNextVideos)
+
+    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobVideoInterstitialUnitId) {
+        if (platformSettings?.adsEnabled == true) {
+            JanzAdMobManager.preloadVideoInterstitial(context, platformSettings)
+        }
+    }
 
     // Set active video for comment listener
     LaunchedEffect(videoId) {
@@ -260,16 +278,25 @@ fun VideoPlayerScreen(
         isPreparingFallback = false
         playerErrorMessage = null
         if (uri.isNotBlank() && !localVideoMissing) {
-            val shouldPlayPreRoll = !preRollTriggered &&
+            val shouldTryPreRoll = !preRollTriggered &&
                 platformSettings?.adsEnabled == true &&
                 platformSettings?.adPreRollEnabled == true
             exoPlayer.setMediaItem(MediaItem.fromUri(uri))
             exoPlayer.prepare()
-            if (shouldPlayPreRoll) {
+            if (shouldTryPreRoll) {
                 preRollTriggered = true
-                activeAdSlot = AdPlacementSlot.PRE_ROLL
-                exoPlayer.playWhenReady = false
-            } else if (activeAdSlot == null) {
+                val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, platformSettings) {
+                    isShowingFullscreenAd = false
+                    exoPlayer.playWhenReady = true
+                    exoPlayer.play()
+                }
+                if (showed) {
+                    isShowingFullscreenAd = true
+                    exoPlayer.playWhenReady = false
+                } else {
+                    exoPlayer.playWhenReady = true
+                }
+            } else if (!isShowingFullscreenAd) {
                 exoPlayer.playWhenReady = true
             }
         } else {
@@ -321,7 +348,17 @@ fun VideoPlayerScreen(
                     val cfg = latestSettings.value
                     if (cfg?.adsEnabled == true && cfg.adPostRollEnabled && !postRollTriggered) {
                         postRollTriggered = true
-                        activeAdSlot = AdPlacementSlot.POST_ROLL
+                        val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, cfg) {
+                            isShowingFullscreenAd = false
+                            if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
+                                onSelectVideo(latestUpNext.value.first().id)
+                            }
+                        }
+                        if (showed) {
+                            isShowingFullscreenAd = true
+                        } else if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
+                            onSelectVideo(latestUpNext.value.first().id)
+                        }
                     } else if (latestAutoPlay.value && latestUpNext.value.isNotEmpty()) {
                         onSelectVideo(latestUpNext.value.first().id)
                     }
@@ -335,7 +372,7 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Poll position, trigger mid-roll ad at 50% (if video >= 30s), and record 3-tier views + watch-time
+    // Poll position, trigger Google AdMob mid-roll at 50% (videos >= 30s), and record 3-tier views + watch-time
     LaunchedEffect(exoPlayer, video?.id) {
         var countedPublicView = false
         var countedEngagedView = false
@@ -343,15 +380,23 @@ fun VideoPlayerScreen(
         while (true) {
             currentPosMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(0L)
-            if (activeAdSlot == null && exoPlayer.isPlaying && video != null) {
-                // Mid-roll trigger halfway through videos >= 30s
+            if (!isShowingFullscreenAd && exoPlayer.isPlaying && video != null) {
                 val cfg = latestSettings.value
                 if (cfg?.adsEnabled == true && cfg.adMidRollEnabled && !midRollTriggered &&
                     durationMs >= 30_000L && currentPosMs >= durationMs / 2L
                 ) {
                     midRollTriggered = true
                     exoPlayer.pause()
-                    activeAdSlot = AdPlacementSlot.MID_ROLL
+                    val showed = JanzAdMobManager.showVideoInterstitialIfReady(activity, cfg) {
+                        isShowingFullscreenAd = false
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    }
+                    if (showed) {
+                        isShowingFullscreenAd = true
+                    } else {
+                        exoPlayer.play()
+                    }
                 } else {
                     accumulatedSec += 1L
                     if (!countedPublicView) {
@@ -452,26 +497,7 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            val currentAd = activeAdSlot
-            val cfgForAd = platformSettings
-            if (currentAd != null && cfgForAd != null) {
-                InVideoAdOverlay(
-                    placement = currentAd,
-                    settings = cfgForAd,
-                    onAdFinished = {
-                        val finishedSlot = activeAdSlot
-                        activeAdSlot = null
-                        if (finishedSlot == AdPlacementSlot.POST_ROLL) {
-                            if (autoPlayNext && upNextVideos.isNotEmpty()) {
-                                onSelectVideo(upNextVideos.first().id)
-                            }
-                        } else {
-                            exoPlayer.playWhenReady = true
-                            exoPlayer.play()
-                        }
-                    }
-                )
-            } else if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
+            if (isPreparingFallback || (isBuffering && !localVideoMissing && playerErrorMessage == null)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -804,6 +830,12 @@ fun VideoPlayerScreen(
                                 }
                             }
                         )
+                    }
+                }
+
+                if (platformSettings?.adsEnabled == true && platformSettings?.admobBannerEnabled == true) {
+                    item(key = "player_admob_banner") {
+                        AdMobBannerSlot(settings = platformSettings)
                     }
                 }
 

@@ -77,13 +77,17 @@ import com.example.data.auth.signOut
 import com.example.data.model.JanzCatalog
 import com.example.data.model.PlatformSettings
 import com.example.notifications.JanzNotificationHelper
+import com.example.ui.components.AppUpdateBanner
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.ForceUpdateDialog
 import com.example.ui.components.LegalPoliciesDialog
 import com.example.ui.components.LegalPolicyTab
 import com.example.ui.components.VerifiedAffiliationBadges
+import com.example.ui.components.evaluateUpdateBannerStatus
 import com.example.ui.components.formatCount
 import com.example.ui.components.formatRelativeDate
 import com.example.ui.components.isAppUpdateAvailable
+import com.example.ui.components.normalizeExternalHttpsUrl
 import com.example.ui.components.openExternalHttpsUrl
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
@@ -742,6 +746,24 @@ fun AdminDashboardScreen(
                         var sharePromoInput by remember(platformSettings) {
                             mutableStateOf(currentCfg.sharePromoText)
                         }
+                        var showBannerPreview by remember { mutableStateOf(false) }
+                        var showForcePopupPreview by remember { mutableStateOf(false) }
+
+                        val parsedPreviewCode = versionCodeInput.toLongOrNull() ?: currentCfg.latestVersionCode
+                        val liveStatus = evaluateUpdateBannerStatus(
+                            latestVersionCode = parsedPreviewCode,
+                            updateUrl = updateUrlInput,
+                            forceUpdate = forceUpdateToggle
+                        )
+                        val draftSettings = currentCfg.copy(
+                            latestVersionCode = parsedPreviewCode,
+                            latestVersionName = versionNameInput.ifBlank { "1.0.$parsedPreviewCode" },
+                            updateUrl = normalizeExternalHttpsUrl(updateUrlInput),
+                            updateNotes = updateNotesInput,
+                            forceUpdate = forceUpdateToggle,
+                            shareAppUrl = normalizeExternalHttpsUrl(shareAppUrlInput),
+                            sharePromoText = sharePromoInput.ifBlank { "Download JanzFlare App" }
+                        )
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Card(
@@ -754,11 +776,39 @@ fun AdminDashboardScreen(
                                         Spacer(Modifier.width(8.dp))
                                         Text("In-App Update Banner (Telegram / APK / Play)", style = MaterialTheme.typography.titleMedium)
                                     }
-                                    Text(
-                                        "Current installed app build: ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME}). Set a higher Version Code + HTTPS Telegram/APK link to show update banner to all users.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (liveStatus.isLiveOnThisDevice) {
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        } else {
+                                            FlareOrange.copy(alpha = 0.14f)
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = "Installed Build: ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME})",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                            )
+                                            Text(
+                                                text = liveStatus.summaryText,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                            if (parsedPreviewCode <= BuildConfig.VERSION_CODE.toLong()) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val nextBuild = BuildConfig.VERSION_CODE + 1
+                                                        versionCodeInput = nextBuild.toString()
+                                                        versionNameInput = "1.0.$nextBuild"
+                                                    }
+                                                ) {
+                                                    Text("Set Version Code to ${BuildConfig.VERSION_CODE + 1} (Trigger Now)")
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         OutlinedTextField(
                                             value = versionCodeInput,
@@ -778,8 +828,9 @@ fun AdminDashboardScreen(
                                     OutlinedTextField(
                                         value = updateUrlInput,
                                         onValueChange = { updateUrlInput = it.take(500) },
-                                        label = { Text("Telegram / Update Download URL (https://...)") },
+                                        label = { Text("Telegram / Update Download URL") },
                                         placeholder = { Text("https://t.me/your_channel_or_apk_link") },
+                                        supportingText = { Text("t.me/... links automatically get https:// added on save") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth()
                                     )
@@ -798,12 +849,36 @@ fun AdminDashboardScreen(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Force Update (Mandatory)", style = MaterialTheme.typography.bodyMedium)
                                             Text(
-                                                "Blocks old app until user taps Download Update",
+                                                "Shows mandatory update popup on older builds (Admins always have Bypass)",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         Switch(checked = forceUpdateToggle, onCheckedChange = { forceUpdateToggle = it })
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(
+                                            onClick = { showBannerPreview = !showBannerPreview },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(if (showBannerPreview) "Hide Banner Preview" else "Preview Banner")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { showForcePopupPreview = true },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Preview Force Popup")
+                                        }
+                                    }
+
+                                    if (showBannerPreview) {
+                                        AppUpdateBanner(
+                                            settings = draftSettings,
+                                            dismissed = false,
+                                            onDismiss = { showBannerPreview = false },
+                                            previewMode = true
+                                        )
                                     }
                                 }
                             }
@@ -826,7 +901,7 @@ fun AdminDashboardScreen(
                                     OutlinedTextField(
                                         value = shareAppUrlInput,
                                         onValueChange = { shareAppUrlInput = it.take(500) },
-                                        label = { Text("App Download / Telegram Link (https://...)") },
+                                        label = { Text("App Download / Telegram Link") },
                                         placeholder = { Text("https://t.me/JanzFlareOfficial") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth()
@@ -863,6 +938,15 @@ fun AdminDashboardScreen(
                                 Text("Save Update & Share Settings")
                             }
                         }
+
+                        if (showForcePopupPreview) {
+                            ForceUpdateDialog(
+                                settings = draftSettings,
+                                isAdmin = true,
+                                previewMode = true,
+                                onDismissAdminOrPreview = { showForcePopupPreview = false }
+                            )
+                        }
                     }
                 }
 
@@ -870,15 +954,17 @@ fun AdminDashboardScreen(
                     item {
                         val currentCfg = platformSettings ?: PlatformSettings()
                         var adsEnabled by remember(platformSettings) { mutableStateOf(currentCfg.adsEnabled) }
+                        var testMode by remember(platformSettings) { mutableStateOf(currentCfg.admobTestMode) }
+                        var bannerEnabled by remember(platformSettings) { mutableStateOf(currentCfg.admobBannerEnabled) }
                         var preRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPreRollEnabled) }
                         var midRoll by remember(platformSettings) { mutableStateOf(currentCfg.adMidRollEnabled) }
                         var postRoll by remember(platformSettings) { mutableStateOf(currentCfg.adPostRollEnabled) }
-                        var skipAfterSec by remember(platformSettings) { mutableStateOf(currentCfg.adSkipAfterSec) }
-                        var durationSec by remember(platformSettings) { mutableStateOf(currentCfg.adDurationSec) }
-                        var adTitle by remember(platformSettings) { mutableStateOf(currentCfg.adTitle) }
-                        var adDesc by remember(platformSettings) { mutableStateOf(currentCfg.adDescription) }
-                        var adMediaUrl by remember(platformSettings) { mutableStateOf(currentCfg.adMediaUrl) }
-                        var adClickUrl by remember(platformSettings) { mutableStateOf(currentCfg.adClickUrl) }
+                        var bannerUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobBannerUnitId) }
+                        var videoUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobVideoInterstitialUnitId) }
+                        var shortsUnitId by remember(platformSettings) { mutableStateOf(currentCfg.admobShortsInterstitialUnitId) }
+                        var shortsInterval by remember(platformSettings) { mutableStateOf(currentCfg.admobShortsInterval) }
+                        var cooldownSec by remember(platformSettings) { mutableStateOf(currentCfg.admobCooldownSec) }
+                        val isSampleAppId = BuildConfig.ADMOB_APP_ID == "ca-app-pub-3940256099942544~3347511713"
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Card(
@@ -889,23 +975,80 @@ fun AdminDashboardScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Campaign, null, tint = FlareOrange)
                                         Spacer(Modifier.width(8.dp))
-                                        Text("YouTube-Style In-Video Ads Control", style = MaterialTheme.typography.titleMedium)
+                                        Text("Google AdMob Live Control", style = MaterialTheme.typography.titleMedium)
                                     }
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = if (isSampleAppId) {
+                                                    "AdMob App ID: Google Official Test App ID"
+                                                } else {
+                                                    "AdMob App ID: Custom Live App ID Connected"
+                                                },
+                                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                                color = if (isSampleAppId) FlareOrange else MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = "To connect your own AdMob App ID without editing code, set ADMOB_APP_ID in AI Studio Secrets and rebuild. Ad Unit IDs & placements below update LIVE instantly for all users.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Enable In-Video Ads", style = MaterialTheme.typography.titleSmall)
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Enable Google AdMob Ads", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "Master switch for all ads across JanzFlare",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         Switch(checked = adsEnabled, onCheckedChange = { adsEnabled = it })
                                     }
-                                    HorizontalDivider()
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Pre-Roll Ad (Start of Video)")
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Safe Test Mode (Recommended while testing)", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "ON = Google official test ads (prevents self-click ban). Turn OFF only when ready for live earnings.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(checked = testMode, onCheckedChange = { testMode = it })
+                                    }
+
+                                    HorizontalDivider()
+                                    Text("Ad Placements", style = MaterialTheme.typography.labelLarge)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Banner Ads (Home Feed & Below Video)")
+                                        Switch(checked = bannerEnabled, onCheckedChange = { bannerEnabled = it })
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Pre-Roll Video Ad (Start of Video)")
                                         Switch(checked = preRoll, onCheckedChange = { preRoll = it })
                                     }
                                     Row(
@@ -913,7 +1056,7 @@ fun AdminDashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Mid-Roll Ad (Middle of Videos 30s+)")
+                                        Text("Mid-Roll Video Ad (50% of 30s+ Videos)")
                                         Switch(checked = midRoll, onCheckedChange = { midRoll = it })
                                     }
                                     Row(
@@ -921,58 +1064,64 @@ fun AdminDashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Post-Roll Ad (End of Video)")
+                                        Text("Post-Roll Video Ad (End of Video)")
                                         Switch(checked = postRoll, onCheckedChange = { postRoll = it })
                                     }
+
                                     HorizontalDivider()
-                                    Text("Show Skip Button After:", style = MaterialTheme.typography.labelLarge)
+                                    Text("Live Google AdMob Ad Unit IDs", style = MaterialTheme.typography.labelLarge)
+                                    Text(
+                                        "Format: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY (used when Safe Test Mode is OFF)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedTextField(
+                                        value = bannerUnitId,
+                                        onValueChange = { bannerUnitId = it.trim().take(40) },
+                                        label = { Text("Banner Ad Unit ID") },
+                                        placeholder = { Text("ca-app-pub-3940256099942544/6300978111") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = videoUnitId,
+                                        onValueChange = { videoUnitId = it.trim().take(40) },
+                                        label = { Text("Video Interstitial Ad Unit ID (Pre/Mid/Post-Roll)") },
+                                        placeholder = { Text("ca-app-pub-3940256099942544/8691691433") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = shortsUnitId,
+                                        onValueChange = { shortsUnitId = it.trim().take(40) },
+                                        label = { Text("Shorts Interstitial Ad Unit ID") },
+                                        placeholder = { Text("ca-app-pub-3940256099942544/8691691433") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    HorizontalDivider()
+                                    Text("Policy Frequency Cap (Cooldown between Fullscreen Ads):", style = MaterialTheme.typography.labelLarge)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(0L to "Instant", 5L to "5 sec", 10L to "10 sec", 15L to "15 sec").forEach { (sec, label) ->
+                                        listOf(60L to "1 min", 180L to "3 min", 300L to "5 min", 600L to "10 min").forEach { (sec, label) ->
                                             FilterChip(
-                                                selected = skipAfterSec == sec,
-                                                onClick = { skipAfterSec = sec },
+                                                selected = cooldownSec == sec,
+                                                onClick = { cooldownSec = sec },
                                                 label = { Text(label) }
                                             )
                                         }
                                     }
-                                    Text("Total Ad Duration:", style = MaterialTheme.typography.labelLarge)
+
+                                    Text("Shorts Ad Interval (Show 1 Ad Every N Swipes):", style = MaterialTheme.typography.labelLarge)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(10L to "10s", 15L to "15s", 20L to "20s", 30L to "30s").forEach { (sec, label) ->
+                                        listOf(4L to "4", 6L to "6", 8L to "8", 10L to "10").forEach { (count, label) ->
                                             FilterChip(
-                                                selected = durationSec == sec,
-                                                onClick = { durationSec = sec },
-                                                label = { Text(label) }
+                                                selected = shortsInterval == count,
+                                                onClick = { shortsInterval = count },
+                                                label = { Text("$label Shorts") }
                                             )
                                         }
                                     }
-                                    OutlinedTextField(
-                                        value = adTitle,
-                                        onValueChange = { adTitle = it.take(100) },
-                                        label = { Text("Sponsor / Ad Title") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = adDesc,
-                                        onValueChange = { adDesc = it.take(240) },
-                                        label = { Text("Sponsor Tagline / Description") },
-                                        maxLines = 2,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = adMediaUrl,
-                                        onValueChange = { adMediaUrl = it.take(500) },
-                                        label = { Text("Ad Banner Image URL (Optional https://...)") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = adClickUrl,
-                                        onValueChange = { adClickUrl = it.take(500) },
-                                        label = { Text("Advertiser Click Link (Optional https://...)") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
                                 }
                             }
 
@@ -984,12 +1133,13 @@ fun AdminDashboardScreen(
                                             adPreRollEnabled = preRoll,
                                             adMidRollEnabled = midRoll,
                                             adPostRollEnabled = postRoll,
-                                            adSkipAfterSec = skipAfterSec,
-                                            adDurationSec = durationSec,
-                                            adTitle = adTitle,
-                                            adDescription = adDesc,
-                                            adMediaUrl = adMediaUrl,
-                                            adClickUrl = adClickUrl
+                                            admobTestMode = testMode,
+                                            admobBannerEnabled = bannerEnabled,
+                                            admobBannerUnitId = bannerUnitId,
+                                            admobVideoInterstitialUnitId = videoUnitId,
+                                            admobShortsInterstitialUnitId = shortsUnitId,
+                                            admobShortsInterval = shortsInterval,
+                                            admobCooldownSec = cooldownSec
                                         )
                                     )
                                 },
@@ -997,7 +1147,7 @@ fun AdminDashboardScreen(
                                     .fillMaxWidth()
                                     .testTag("admin_save_ads_button")
                             ) {
-                                Text("Save Ads Configuration")
+                                Text("Save Google AdMob Settings")
                             }
                         }
                     }

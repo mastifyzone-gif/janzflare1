@@ -252,6 +252,13 @@
         "adDescription": { "type": "string" },
         "adMediaUrl": { "type": "string" },
         "adClickUrl": { "type": "string" },
+        "admobTestMode": { "type": "boolean" },
+        "admobBannerEnabled": { "type": "boolean" },
+        "admobBannerUnitId": { "type": "string" },
+        "admobVideoInterstitialUnitId": { "type": "string" },
+        "admobShortsInterstitialUnitId": { "type": "string" },
+        "admobShortsInterval": { "type": "integer" },
+        "admobCooldownSec": { "type": "integer" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["disabledCategories", "featuredBannerText", "maintenanceNotice", "updatedAt"]

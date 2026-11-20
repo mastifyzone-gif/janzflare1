@@ -196,6 +196,13 @@ data class PlatformSettings(
     val adDescription: String = "",
     val adMediaUrl: String = "",
     val adClickUrl: String = "",
+    val admobTestMode: Boolean = true,
+    val admobBannerEnabled: Boolean = true,
+    val admobBannerUnitId: String = "",
+    val admobVideoInterstitialUnitId: String = "",
+    val admobShortsInterstitialUnitId: String = "",
+    val admobShortsInterval: Long = 6L,
+    val admobCooldownSec: Long = 180L,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 

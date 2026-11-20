@@ -1107,7 +1107,7 @@ private fun EditProfileDialog(
                 OutlinedTextField(value = bio, onValueChange = { bio = it.take(300) }, label = { Text("Bio") }, maxLines = 3)
                 OutlinedTextField(value = socialLink, onValueChange = { socialLink = it.take(200) }, label = { Text("Primary Social Link (Optional)") })
 
-                // YouTube-style Channel About Links (up to 5)
+                // Channel About Links (up to 5)
                 Text("Channel About Links (${channelLinks.size}/5)", style = MaterialTheme.typography.labelLarge)
                 channelLinks.forEachIndexed { idx, raw ->
                     val parts = raw.split("|", limit = 2)
@@ -1318,7 +1318,7 @@ fun CreatorDashboardScreen(
                     }
                     item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("YouTube-Style 3-Tier Views Analytics", style = MaterialTheme.typography.titleLarge)
+                        Text("3-Tier Views Analytics", style = MaterialTheme.typography.titleLarge)
                         Text(
                             text = "1) Public Views (shown to everyone) • 2) Engaged Views (valid for monetization: 3s+ Shorts / 10s+ Videos) • 3) Creator Quality Insights",
                             style = MaterialTheme.typography.bodySmall,
@@ -1614,7 +1614,7 @@ private fun MonetizationSectionContent(
             }
         }
 
-        // Eligibility Criteria (YouTube-style Progress Bars)
+        // Eligibility Criteria Progress Bars
         item {
             Card(
                 shape = RoundedCornerShape(18.dp),

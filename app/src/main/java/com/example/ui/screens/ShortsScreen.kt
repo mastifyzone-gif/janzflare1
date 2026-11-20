@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -83,6 +84,7 @@ import com.example.data.model.CreatorProfile
 import com.example.data.model.Video
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.EmptyStudioCard
+import com.example.ui.components.JanzAdMobManager
 import com.example.ui.components.ReportContentDialog
 import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VerifiedAffiliationBadges
@@ -183,6 +185,27 @@ fun ShortsScreen(
     }
 
     val pagerState = rememberPagerState(pageCount = { shortsFeed.size })
+    val activity = context as? Activity
+    var swipedShortsCount by remember { mutableStateOf(0) }
+    var lastTrackedPage by remember { mutableStateOf(0) }
+
+    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobShortsInterstitialUnitId) {
+        if (platformSettings?.adsEnabled == true) {
+            JanzAdMobManager.preloadShortsInterstitial(context, platformSettings)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, platformSettings) {
+        val page = pagerState.currentPage
+        if (page != lastTrackedPage) {
+            lastTrackedPage = page
+            swipedShortsCount += 1
+            val interval = (platformSettings?.admobShortsInterval ?: 6L).coerceIn(2L, 30L).toInt()
+            if (platformSettings?.adsEnabled == true && swipedShortsCount > 0 && swipedShortsCount % interval == 0) {
+                JanzAdMobManager.showShortsInterstitialIfReady(activity, platformSettings)
+            }
+        }
+    }
 
     LaunchedEffect(focusedShortId, shortsFeed) {
         val targetId = focusedShortId

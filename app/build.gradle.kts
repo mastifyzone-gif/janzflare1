@@ -28,6 +28,13 @@ android {
         buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"${cloudName.trim().replace("\"", "")}\"")
         buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", "\"${cloudPreset.trim().replace("\"", "")}\"")
 
+        val admobAppId = (project.findProperty("admobAppId") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("ADMOB_APP_ID")?.takeIf { it.isNotBlank() }
+            ?: "ca-app-pub-3940256099942544~3347511713"
+        val cleanAdmobAppId = admobAppId.trim().replace("\"", "")
+        manifestPlaceholders["ADMOB_APP_ID"] = cleanAdmobAppId
+        buildConfigField("String", "ADMOB_APP_ID", "\"$cleanAdmobAppId\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -135,6 +142,7 @@ dependencies {
   implementation(libs.media3.exoplayer)
   implementation(libs.media3.ui)
   implementation(libs.media3.common)
+  implementation(libs.play.services.ads)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

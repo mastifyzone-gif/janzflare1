@@ -81,6 +81,7 @@ import com.example.data.auth.authStateFlow
 import com.example.data.repository.JanzRepository
 import com.example.notifications.JanzNotificationHelper
 import com.example.ui.components.ForceUpdateDialog
+import com.example.ui.components.JanzAdMobManager
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CreatorDashboardScreen
@@ -263,9 +264,19 @@ private fun AuthenticatedJanzApp(
 
     val userAccountState by viewModel.userAccountState.collectAsStateWithLifecycle()
     val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    var adminBypassForceUpdate by remember { mutableStateOf(false) }
     val themeMode = (userAccountState as? UiState.Success)?.data?.themeMode ?: "dark"
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(platformSettings?.adsEnabled, platformSettings?.admobTestMode, platformSettings?.admobVideoInterstitialUnitId, platformSettings?.admobShortsInterstitialUnitId) {
+        if (platformSettings?.adsEnabled == true) {
+            JanzAdMobManager.ensureInitialized(context)
+            JanzAdMobManager.preloadVideoInterstitial(context, platformSettings)
+            JanzAdMobManager.preloadShortsInterstitial(context, platformSettings)
+        }
+    }
 
     LaunchedEffect(snackbarMessage) {
         snackbarMessage?.let { msg ->
@@ -524,7 +535,13 @@ private fun AuthenticatedJanzApp(
             }
         }
 
-        ForceUpdateDialog(settings = platformSettings)
+        if (!adminBypassForceUpdate) {
+            ForceUpdateDialog(
+                settings = platformSettings,
+                isAdmin = isAdmin,
+                onDismissAdminOrPreview = { adminBypassForceUpdate = true }
+            )
+        }
     }
 }
 

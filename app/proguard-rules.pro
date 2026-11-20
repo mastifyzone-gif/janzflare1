@@ -25,3 +25,9 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 -keep class androidx.media3.** { *; }
+
+# Google Mobile Ads (AdMob) SDK
+-keep public class com.google.android.gms.ads.** { public *; }
+-keep public class com.google.ads.** { public *; }
+-dontwarn com.google.android.gms.ads.**
+

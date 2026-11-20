@@ -1336,7 +1336,23 @@ class JanzRepository(
     private fun sanitizeHttpsOrEmpty(raw: String, maxLen: Int = 1000): String {
         val trimmed = raw.trim().take(maxLen)
         if (trimmed.isEmpty()) return ""
-        require(trimmed.startsWith("https://")) { "Only secure https:// links are allowed" }
+        val normalized = when {
+            trimmed.startsWith("https://", ignoreCase = true) -> "https://" + trimmed.substring(8)
+            trimmed.startsWith("http://", ignoreCase = true) ->
+                throw IllegalArgumentException("Please use a secure https:// link (http:// is blocked for security)")
+            !trimmed.contains("://") && trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
+            else -> throw IllegalArgumentException("Invalid link format. Example: https://t.me/your_channel")
+        }
+        return normalized.take(maxLen)
+    }
+
+    private fun sanitizeAdMobUnitIdOrEmpty(raw: String, fieldLabel: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+        val regex = Regex("^ca-app-pub-[0-9]{16}/[0-9]{10}$")
+        require(regex.matches(trimmed)) {
+            "$fieldLabel must look like ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY"
+        }
         return trimmed
     }
 
@@ -1346,8 +1362,13 @@ class JanzRepository(
             val safeShareAppUrl = sanitizeHttpsOrEmpty(settings.shareAppUrl)
             val safeAdMediaUrl = sanitizeHttpsOrEmpty(settings.adMediaUrl)
             val safeAdClickUrl = sanitizeHttpsOrEmpty(settings.adClickUrl)
+            val safeBannerUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobBannerUnitId, "Banner Ad Unit ID")
+            val safeVideoUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobVideoInterstitialUnitId, "Video Ad Unit ID")
+            val safeShortsUnit = sanitizeAdMobUnitIdOrEmpty(settings.admobShortsInterstitialUnitId, "Shorts Ad Unit ID")
             val safeAdDuration = settings.adDurationSec.coerceIn(5L, 60L)
             val safeAdSkipAfter = settings.adSkipAfterSec.coerceIn(0L, safeAdDuration.coerceAtMost(30L))
+            val safeShortsInterval = settings.admobShortsInterval.coerceIn(2L, 30L)
+            val safeCooldownSec = settings.admobCooldownSec.coerceIn(30L, 1800L)
 
             db.collection("platformSettings").document("config").set(
                 mapOf(
@@ -1371,6 +1392,13 @@ class JanzRepository(
                     "adDescription" to settings.adDescription.trim().take(240),
                     "adMediaUrl" to safeAdMediaUrl,
                     "adClickUrl" to safeAdClickUrl,
+                    "admobTestMode" to settings.admobTestMode,
+                    "admobBannerEnabled" to settings.admobBannerEnabled,
+                    "admobBannerUnitId" to safeBannerUnit,
+                    "admobVideoInterstitialUnitId" to safeVideoUnit,
+                    "admobShortsInterstitialUnitId" to safeShortsUnit,
+                    "admobShortsInterval" to safeShortsInterval,
+                    "admobCooldownSec" to safeCooldownSec,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()

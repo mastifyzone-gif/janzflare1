@@ -70,6 +70,7 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.Video
 import com.example.domain.RecommendationEngine
+import com.example.ui.components.AdMobBannerSlot
 import com.example.ui.components.AppUpdateBanner
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.CreatorAvatar
@@ -308,6 +309,16 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Google AdMob Adaptive Banner (controlled live from Admin Panel)
+                if (platformSettings?.adsEnabled == true && platformSettings?.admobBannerEnabled == true) {
+                    item(key = "home_admob_banner") {
+                        AdMobBannerSlot(
+                            settings = platformSettings,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                     }
                 }
 

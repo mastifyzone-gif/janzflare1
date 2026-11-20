@@ -300,7 +300,13 @@ class JanzViewModel(
 
         when (tab) {
             HomeFeedTab.FOR_YOU -> RecommendationEngine.rankForYou(
-                filteredByCategory, creatorsById, user, catWatchMap, langWatchMap
+                videos = filteredByCategory,
+                creatorsById = creatorsById,
+                user = user,
+                followingIds = followingIds,
+                watchHistory = history,
+                watchHistoryCategories = catWatchMap,
+                watchHistoryLanguages = langWatchMap
             )
             HomeFeedTab.FOLLOWING -> filteredByCategory
                 .filter { it.creatorId in followingIds }
@@ -312,11 +318,30 @@ class JanzViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
-    val shortsFeed: StateFlow<List<Video>> = combine(publicVideosState, userAccountState) { vState, uState ->
+    val shortsFeed: StateFlow<List<Video>> = combine(
+        publicVideosState,
+        allCreators,
+        userAccountState,
+        followingList,
+        watchHistory
+    ) { vState, creators, uState, following, history ->
         val raw = (vState as? UiState.Success)?.data ?: emptyList()
-        val blocked = (uState as? UiState.Success)?.data?.blockedUserIds?.toSet().orEmpty()
-        raw.filter { (it.shortForm || it.category == "Shorts") && it.creatorId !in blocked }
-            .sortedByDescending { it.createdAt?.seconds ?: 0L }
+        val user = (uState as? UiState.Success)?.data
+        val blocked = user?.blockedUserIds?.toSet().orEmpty()
+        val shorts = raw.filter { (it.shortForm || it.category == "Shorts") && it.creatorId !in blocked }
+        val creatorsById = creators.associateBy { it.creatorId }
+        val followingIds = following.map { it.creatorId }.toSet()
+        val catWatchMap = history.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.watchedSec } }
+        val langWatchMap = history.groupBy { it.language }.mapValues { entry -> entry.value.sumOf { it.watchedSec } }
+        RecommendationEngine.rankShortsForYou(
+            shorts = shorts,
+            creatorsById = creatorsById,
+            user = user,
+            followingIds = followingIds,
+            watchHistory = history,
+            watchHistoryCategories = catWatchMap,
+            watchHistoryLanguages = langWatchMap
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
     init {

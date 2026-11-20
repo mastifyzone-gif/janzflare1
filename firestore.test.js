@@ -480,13 +480,20 @@ test("Admin PlatformSettings update/share/ads config and server-side monetizatio
     adDescription: "Boost your reach on JanzFlare!",
     adMediaUrl: "https://example.com/ad-banner.jpg",
     adClickUrl: "https://t.me/janzflare_updates",
+    admobTestMode: true,
+    admobBannerEnabled: true,
+    admobBannerUnitId: "ca-app-pub-3940256099942544/6300978111",
+    admobVideoInterstitialUnitId: "ca-app-pub-3940256099942544/8691691433",
+    admobShortsInterstitialUnitId: "ca-app-pub-3940256099942544/8691691433",
+    admobShortsInterval: 6,
+    admobCooldownSec: 180,
     updatedAt: new Date(Date.now() - 200),
   };
 
   // Non-admin cannot update platformSettings
   await assertFails(aliceDb.collection("platformSettings").doc("config").set(validSettings));
 
-  // Admin succeeds with valid HTTPS URLs
+  // Admin succeeds with valid HTTPS URLs and valid AdMob Unit IDs
   await assertSucceeds(adminDb.collection("platformSettings").doc("config").set(validSettings));
 
   // Admin fails if updateUrl is non-HTTPS
@@ -494,6 +501,14 @@ test("Admin PlatformSettings update/share/ads config and server-side monetizatio
     adminDb.collection("platformSettings").doc("config").set({
       ...validSettings,
       updateUrl: "http://insecure.link/app.apk",
+    })
+  );
+
+  // Admin fails if AdMob unit ID is malformed
+  await assertFails(
+    adminDb.collection("platformSettings").doc("config").set({
+      ...validSettings,
+      admobBannerUnitId: "not-a-valid-admob-id",
     })
   );
 
