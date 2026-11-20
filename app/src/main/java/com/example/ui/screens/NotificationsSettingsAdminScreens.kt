@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Cookie
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Share
@@ -80,6 +81,7 @@ import com.example.notifications.JanzNotificationHelper
 import com.example.ui.components.AppUpdateBanner
 import com.example.ui.components.EmptyStudioCard
 import com.example.ui.components.ForceUpdateDialog
+import com.example.ui.components.JANZ_SUPPORT_EMAIL
 import com.example.ui.components.LegalPoliciesDialog
 import com.example.ui.components.LegalPolicyTab
 import com.example.ui.components.VerifiedAffiliationBadges
@@ -89,6 +91,7 @@ import com.example.ui.components.formatRelativeDate
 import com.example.ui.components.isAppUpdateAvailable
 import com.example.ui.components.normalizeExternalHttpsUrl
 import com.example.ui.components.openExternalHttpsUrl
+import com.example.ui.components.openSupportEmail
 import com.example.ui.state.JanzViewModel
 import com.example.ui.state.UiState
 import com.example.ui.theme.FlareOrange
@@ -347,9 +350,9 @@ fun SettingsPrivacyScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Legal, Policies & App Info", style = MaterialTheme.typography.titleMedium)
+                        Text("Legal, Policies & Support", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "JanzFlare follows Google Play safety policies with zero tolerance for copyright infringement, spam, or unsafe content.",
+                            "JanzFlare (by Janz Media) protects creators and viewers with clear privacy standards, community moderation, and zero tolerance for abuse or copyright violations.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -390,8 +393,28 @@ fun SettingsPrivacyScreen(
                         ) {
                             Icon(Icons.Default.Cookie, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text("Cookie & Local Data Policy", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text("Cookie & Ad Data Policy", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                             Text("View", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openSupportEmail(context) }
+                                .padding(vertical = 8.dp)
+                                .testTag("settings_contact_support_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Contact Support & Grievance", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = JANZ_SUPPORT_EMAIL,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("Email", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
                         Row(

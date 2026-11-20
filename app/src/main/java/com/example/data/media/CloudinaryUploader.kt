@@ -68,7 +68,7 @@ object CloudinaryUploader {
         val cloudName = BuildConfig.CLOUDINARY_CLOUD_NAME.trim()
         val preset = BuildConfig.CLOUDINARY_UPLOAD_PRESET.trim()
         require(cloudName.isNotBlank() && preset.isNotBlank()) {
-            "Cloudinary upload is not configured yet"
+            "Video upload service is temporarily unavailable. Please try again later."
         }
 
         val mimeType = context.contentResolver.getType(uri) ?: "video/mp4"
@@ -77,7 +77,7 @@ object CloudinaryUploader {
         if (contentLength > MAX_FREE_VIDEO_BYTES) {
             val sizeMb = (contentLength / (1024.0 * 1024.0)).roundToInt()
             throw IllegalArgumentException(
-                "Video size is ${sizeMb} MB. Free Cloudinary plan supports up to 100 MB per video — please trim or compress it."
+                "Video size is ${sizeMb} MB. Maximum supported size is 100 MB per video — please trim or compress it."
             )
         }
 
@@ -182,7 +182,7 @@ object CloudinaryUploader {
         val cloudName = BuildConfig.CLOUDINARY_CLOUD_NAME.trim()
         val preset = BuildConfig.CLOUDINARY_UPLOAD_PRESET.trim()
         require(cloudName.isNotBlank() && preset.isNotBlank()) {
-            "Cloudinary upload is not configured yet"
+            "Image upload service is temporarily unavailable. Please try again later."
         }
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
