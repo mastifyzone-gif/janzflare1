@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.janzflare.kxmpzq"
         minSdk = 24
         targetSdk = 36
-        versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 101
-        versionName = (project.findProperty("appVersionName") as? String) ?: "1.2.0"
+        versionCode = (project.findProperty("appVersionCode") as? String)?.toIntOrNull() ?: 102
+        versionName = (project.findProperty("appVersionName") as? String) ?: "1.2.1"
 
         val cloudName = (project.findProperty("cloudinaryCloudName") as? String)?.takeIf { it.isNotBlank() }
             ?: System.getenv("CLOUDINARY_CLOUD_NAME")?.takeIf { it.isNotBlank() }
@@ -30,7 +30,7 @@ android {
 
         val admobAppId = (project.findProperty("admobAppId") as? String)?.takeIf { it.isNotBlank() }
             ?: System.getenv("ADMOB_APP_ID")?.takeIf { it.isNotBlank() }
-            ?: "ca-app-pub-3940256099942544~3347511713"
+            ?: "ca-app-pub-9086198351759529~8991935057"
         val cleanAdmobAppId = admobAppId.trim().replace("\"", "")
         manifestPlaceholders["ADMOB_APP_ID"] = cleanAdmobAppId
         buildConfigField("String", "ADMOB_APP_ID", "\"$cleanAdmobAppId\"")
